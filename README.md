@@ -74,32 +74,40 @@ Requires WSL (or Linux/macOS) with the Pico SDK toolchain installed.
 
 ```bash
 git clone --recursive https://github.com/niwantha33/micropython_live_debugger
-cd micropython-debugger
+cd micropython_live_debugger
 export MPY_DIR=$HOME/micropython
 git clone --recursive https://github.com/micropython/micropython.git $MPY_DIR
 
-# Apply all patches
-for p in firmware/patches/0*.sh; do bash "$p"; done
-
-# Build
-cd $MPY_DIR/ports/rp2
-make BOARD=RPI_PICO2_W -j4
-# Output: build-RPI_PICO2_W/firmware.uf2
+# Build all firmwares (Pico W, Pico 2 W, Pico, Pico 2)
+cd firmware
+./build.sh
 ```
+
+The script [build.sh](file:///c:/Claude_Projects/micropython_debugger/firmware/build.sh) automatically:
+1. Resets the MicroPython repository to a clean state.
+2. Applies all patches sequentially.
+3. Clears stale CMake configurations for each target.
+4. Generates four separate `.uf2` firmware binaries in the `firmware/` directory:
+   * `firmware_pico_w.uf2` — Raspberry Pi Pico W (Wi-Fi RP2040)
+   * `firmware_pico2_w.uf2` — Raspberry Pi Pico 2 W (Wi-Fi RP2350)
+   * `firmware_pico2.uf2` — Raspberry Pi Pico 2 (non-Wi-Fi RP2350)
+   * `firmware_pico.uf2` — Raspberry Pi Pico (non-Wi-Fi RP2040)
 
 ## Repo layout
 
 ```
 firmware/
-  patches/         16 numbered .sh patches that fork MicroPython
+  patches/                  17 numbered .sh patches that fork MicroPython
+  firmware_pico_w.uf2       Pre-built firmware for Pico W (Wi-Fi RP2040)
+  firmware_pico2_w.uf2      Pre-built firmware for Pico 2 W (Wi-Fi RP2350)
+  firmware_pico2.uf2        Pre-built firmware for Pico 2 (non-Wi-Fi RP2350)
+  firmware_pico.uf2         Pre-built firmware for Pico (non-Wi-Fi RP2040)
 host/
-  trace_pump.py    Runs on the Pico, pumps debug frames over CDC1
-  dbgref.py        Holds reference to CDC1 device
+  trace_pump.py             Runs on the Pico, pumps debug frames over CDC1
+  dbgref.py                 Holds reference to CDC1 device
 target/
-  nested.py        Test program (3-level call stack)
-protocol/          Wire format spec
-micropythondebugger/   VS Code extension source (mirror)
-firmware.uf2       Pre-built firmware for Pico 2 W
+  nested.py                 Test program (3-level call stack)
+protocol/                   Wire format spec
 ```
 
 ## Wire protocol
