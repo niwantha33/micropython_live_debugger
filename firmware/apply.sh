@@ -16,7 +16,7 @@ git checkout . >/dev/null
 git clean -fd -e 'build-*' -e 'lib/' >/dev/null
 
 shopt -s nullglob
-items=("$PATCH_DIR"/*.patch "$PATCH_DIR"/*.sh)
+items=("$PATCH_DIR"/*.patch "$PATCH_DIR"/0*.sh)
 # Filter out non-existent glob expansions and sort
 items=($(printf '%s\n' "${items[@]}" | sort))
 
