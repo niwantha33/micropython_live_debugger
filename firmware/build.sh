@@ -60,8 +60,25 @@ UF2_SRC3="$MPY_DIR/ports/rp2/build-$BOARD3/firmware.uf2"
 UF2_DST3="$HERE/firmware_pico2.uf2"
 cp "$UF2_SRC3" "$UF2_DST3"
 
+# 5. Build RPI_PICO (non-Wi-Fi)
+BOARD4="RPI_PICO"
+echo "==> Building $BOARD4"
+rm -rf "build-$BOARD4"
+PATH=/usr/local/bin:/usr/bin:/bin \
+PICOTOOL_FORCE_FETCH_FROM_GIT=1 \
+    make BOARD="$BOARD4" submodules
+
+PATH=/usr/local/bin:/usr/bin:/bin \
+PICOTOOL_FORCE_FETCH_FROM_GIT=1 \
+    make -j"$(nproc)" BOARD="$BOARD4"
+
+UF2_SRC4="$MPY_DIR/ports/rp2/build-$BOARD4/firmware.uf2"
+UF2_DST4="$HERE/firmware_pico.uf2"
+cp "$UF2_SRC4" "$UF2_DST4"
+
 echo "==> Done"
 echo "    Pico 2 W:       $UF2_DST2"
 echo "    Pico W:         $UF2_DST1"
 echo "    Pico 2 (non-W): $UF2_DST3"
+echo "    Pico (non-W):   $UF2_DST4"
 echo "    Flash: hold BOOTSEL, plug USB, drag appropriate UF2 onto board drive."
