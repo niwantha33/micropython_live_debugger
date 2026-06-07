@@ -42,9 +42,11 @@ Every frame:
 | 0x14 | step_out        | —       |
 | 0x18 | poke_local      | `slot_idx` (1B) + `depth` (optional 1B) + `expr` (UTF-8 str) |
 | 0x19 | poke_global     | `depth` (1B) + `name_len` (1B) + `name` (str) + `expr` (UTF-8 str) |
+| 0x20 | halt            | —       |
 
 `get_locals` returns a 0x03 reply frame with `repr()`-formatted locals of the specified frame depth.
 `poke_local` and `poke_global` evaluate `expr` in the context of the module globals at the specified frame depth and apply the mutation, returning a status string in a 0x03 reply frame.
+`halt` asynchronously interrupts/pauses the executing VM on the next opcode.
 
 ## Firmware Python API (`import dbg`)
 
@@ -69,6 +71,7 @@ Exposed by the custom firmware:
 - `dbg.frame_info()` — `(n_state, sp_off, ip_off)` or `None` (for innermost frame)
 - `dbg.poke(slot_idx, value, depth=0)` — mutate variable at `state[slot_idx]` of frame at depth (returns `True`/`False`)
 - `dbg.globals(depth=0)` — returns globals dictionary of frame at depth, or `None`
+- `dbg.halt()` — sets pending halt flag to interrupt execution on the next opcode (returns `None`)
 
 ## Lifecycle
 

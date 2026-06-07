@@ -175,6 +175,10 @@ def _pump():
                         text = "poked global %s (depth %d) = %r" % (name, depth_idx, val)
                     else:
                         text = "poke global failed (no globals context)"
+            elif cmd_type == 0x20:
+                try:
+                    dbg.halt()
+                    text = "halt pending"
                 except Exception as e:
                     text = "err: " + repr(e)
                 payload = text.encode()[:250]

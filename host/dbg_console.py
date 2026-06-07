@@ -54,10 +54,17 @@ def main():
     stop_evt = threading.Event()
     t = threading.Thread(target=reader_loop, args=(ser, stop_evt), daemon=True)
     t.start()
-    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global q=quit")
+    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt q=quit")
     try:
         while True:
-            cmd = input("> ").strip()
+            try:
+                cmd = input("> ").strip()
+            except KeyboardInterrupt:
+                ser.write(bytes([0xAA, 0x20, 0x00]))
+                ser.flush()
+                print("\nsent: halt (Ctrl-C)")
+                continue
+
             cmd_lower = cmd.lower()
             if cmd_lower == "q":
                 break
@@ -77,6 +84,10 @@ def main():
                 ser.write(bytes([0xAA, 0x14, 0x00]))
                 ser.flush()
                 print("sent: step-out")
+            elif cmd_lower == "h":
+                ser.write(bytes([0xAA, 0x20, 0x00]))
+                ser.flush()
+                print("sent: halt")
             elif cmd_lower.startswith("l"):
                 parts = cmd.split(" ", 1)
                 try:
