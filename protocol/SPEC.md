@@ -37,14 +37,14 @@ Every frame:
 |------|-----------------|---------|
 | 0x10 | continue        | —       |
 | 0x11 | step (over)     | —       |
-| 0x12 | get_locals      | —       |
+| 0x12 | get_locals      | `depth` (optional 1B, defaults to 0) |
 | 0x13 | step_in         | —       |
 | 0x14 | step_out        | —       |
-| 0x18 | poke_local      | `slot_idx` (1B) + `expr` (UTF-8 str) |
-| 0x19 | poke_global     | `name_len` (1B) + `name` (str) + `expr` (UTF-8 str) |
+| 0x18 | poke_local      | `slot_idx` (1B) + `depth` (optional 1B) + `expr` (UTF-8 str) |
+| 0x19 | poke_global     | `depth` (1B) + `name_len` (1B) + `name` (str) + `expr` (UTF-8 str) |
 
-`get_locals` returns a 0x03 reply frame with `repr()`-formatted locals + frame_info.
-`poke_local` and `poke_global` evaluate `expr` in the context of the running globals dict and apply the mutation, returning a status string in a 0x03 reply frame.
+`get_locals` returns a 0x03 reply frame with `repr()`-formatted locals of the specified frame depth.
+`poke_local` and `poke_global` evaluate `expr` in the context of the module globals at the specified frame depth and apply the mutation, returning a status string in a 0x03 reply frame.
 
 ## Firmware Python API (`import dbg`)
 
@@ -65,10 +65,10 @@ Exposed by the custom firmware:
 - `dbg.step()` — single-step in same frame (step-over)
 - `dbg.step_in()` — single-step into any frame
 - `dbg.step_out()` — run until we leave current frame
-- `dbg.locals()` — list of `state[]` of paused frame, or `None`
-- `dbg.frame_info()` — `(n_state, sp_off, ip_off)` or `None`
-- `dbg.poke(slot_idx, value)` — mutate the variable at `state[slot_idx]` (returns `True`/`False`)
-- `dbg.globals()` — returns the globals dictionary of the paused frame context, or `None`
+- `dbg.locals(depth=0)` — list of `state[]` of paused frame at depth (innermost=0), or `None`
+- `dbg.frame_info()` — `(n_state, sp_off, ip_off)` or `None` (for innermost frame)
+- `dbg.poke(slot_idx, value, depth=0)` — mutate variable at `state[slot_idx]` of frame at depth (returns `True`/`False`)
+- `dbg.globals(depth=0)` — returns globals dictionary of frame at depth, or `None`
 
 ## Lifecycle
 

@@ -77,44 +77,69 @@ def main():
                 ser.write(bytes([0xAA, 0x14, 0x00]))
                 ser.flush()
                 print("sent: step-out")
-            elif cmd_lower == "l":
-                ser.write(bytes([0xAA, 0x12, 0x00]))
-                ser.flush()
-                print("sent: locals")
+            elif cmd_lower.startswith("l"):
+                parts = cmd.split(" ", 1)
+                try:
+                    depth = int(parts[1]) if len(parts) > 1 else 0
+                    ser.write(bytes([0xAA, 0x12, 0x01, depth]))
+                    ser.flush()
+                    print(f"sent: locals depth {depth}")
+                except Exception as e:
+                    print("invalid locals command: ", e)
             elif cmd_lower.startswith("p "):
-                parts = cmd.split(" ", 2)
+                parts = cmd.split(" ", 3)
                 if len(parts) >= 3:
                     try:
                         slot = int(parts[1])
-                        expr = parts[2]
-                        payload = bytes([slot]) + expr.encode()
+                        depth = 0
+                        expr = ""
+                        if len(parts) == 4:
+                            try:
+                                depth = int(parts[2])
+                                expr = parts[3]
+                            except ValueError:
+                                expr = cmd.split(" ", 2)[2]
+                        else:
+                            expr = parts[2]
+                        
+                        payload = bytes([slot, depth]) + expr.encode()
                         frame = bytes([0xAA, 0x18, len(payload)]) + payload
                         ser.write(frame)
                         ser.flush()
-                        print(f"sent: poke slot {slot} with {expr}")
+                        print(f"sent: poke slot {slot} (depth {depth}) with {expr}")
                     except Exception as e:
                         print("invalid poke command: ", e)
                 else:
-                    print("usage: p <slot> <expr>")
+                    print("usage: p <slot> [depth] <expr>")
             elif cmd_lower.startswith("g "):
-                parts = cmd.split(" ", 2)
+                parts = cmd.split(" ", 3)
                 if len(parts) >= 3:
                     try:
                         name = parts[1]
-                        expr = parts[2]
+                        depth = 0
+                        expr = ""
+                        if len(parts) == 4:
+                            try:
+                                depth = int(parts[2])
+                                expr = parts[3]
+                            except ValueError:
+                                expr = cmd.split(" ", 2)[2]
+                        else:
+                            expr = parts[2]
+                            
                         name_bytes = name.encode()
                         if len(name_bytes) > 255:
                             print("global name too long")
                             continue
-                        payload = bytes([len(name_bytes)]) + name_bytes + expr.encode()
+                        payload = bytes([depth, len(name_bytes)]) + name_bytes + expr.encode()
                         frame = bytes([0xAA, 0x19, len(payload)]) + payload
                         ser.write(frame)
                         ser.flush()
-                        print(f"sent: poke global {name} with {expr}")
+                        print(f"sent: poke global {name} (depth {depth}) with {expr}")
                     except Exception as e:
                         print("invalid poke global command: ", e)
                 else:
-                    print("usage: g <name> <expr>")
+                    print("usage: g <name> [depth] <expr>")
             else:
                 print("?")
     finally:
