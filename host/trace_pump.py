@@ -134,6 +134,49 @@ def _pump():
                     cdc.write(frame)
                 except Exception:
                     pass
+            elif cmd_type == 0x18:
+                # poke_local: payload = slot_idx (1 byte), expr (str)
+                try:
+                    slot_idx = cmd_buf[3]
+                    expr_bytes = cmd_buf[4:total]
+                    expr_str = expr_bytes.decode()
+                    g = dbg.globals()
+                    val = eval(expr_str, g if g is not None else {})
+                    res = dbg.poke(slot_idx, val)
+                    if res:
+                        text = "poked slot %d = %r" % (slot_idx, val)
+                    else:
+                        text = "poke failed (not paused)"
+                except Exception as e:
+                    text = "err: " + repr(e)
+                payload = text.encode()[:250]
+                frame = bytes([0xAA, 0x03, len(payload)]) + payload
+                try:
+                    cdc.write(frame)
+                except Exception:
+                    pass
+            elif cmd_type == 0x19:
+                # poke_global: payload = name_len (1 byte), name (str), expr (str)
+                try:
+                    p = cmd_buf[3:total]
+                    name_len = p[0]
+                    name = bytes(p[1:1+name_len]).decode()
+                    expr = bytes(p[1+name_len:]).decode()
+                    g = dbg.globals()
+                    if g is not None:
+                        val = eval(expr, g)
+                        g[name] = val
+                        text = "poked global %s = %r" % (name, val)
+                    else:
+                        text = "poke global failed (no globals context)"
+                except Exception as e:
+                    text = "err: " + repr(e)
+                payload = text.encode()[:250]
+                frame = bytes([0xAA, 0x03, len(payload)]) + payload
+                try:
+                    cdc.write(frame)
+                except Exception:
+                    pass
             cmd_buf[:] = cmd_buf[total:]
         while cmd_buf and cmd_buf[0] != 0xAA:
             cmd_buf.pop(0)

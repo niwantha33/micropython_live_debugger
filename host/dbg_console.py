@@ -54,32 +54,67 @@ def main():
     stop_evt = threading.Event()
     t = threading.Thread(target=reader_loop, args=(ser, stop_evt), daemon=True)
     t.start()
-    print(f"open {port}. c=continue s=over i=in o=out l=locals q=quit")
+    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global q=quit")
     try:
         while True:
-            cmd = input("> ").strip().lower()
-            if cmd == "q":
+            cmd = input("> ").strip()
+            cmd_lower = cmd.lower()
+            if cmd_lower == "q":
                 break
-            elif cmd == "c":
+            elif cmd_lower == "c":
                 ser.write(bytes([0xAA, 0x10, 0x00]))
                 ser.flush()
                 print("sent: continue")
-            elif cmd == "s":
+            elif cmd_lower == "s":
                 ser.write(bytes([0xAA, 0x11, 0x00]))
                 ser.flush()
                 print("sent: step")
-            elif cmd == "i":
+            elif cmd_lower == "i":
                 ser.write(bytes([0xAA, 0x13, 0x00]))
                 ser.flush()
                 print("sent: step-in")
-            elif cmd == "o":
+            elif cmd_lower == "o":
                 ser.write(bytes([0xAA, 0x14, 0x00]))
                 ser.flush()
                 print("sent: step-out")
-            elif cmd == "l":
+            elif cmd_lower == "l":
                 ser.write(bytes([0xAA, 0x12, 0x00]))
                 ser.flush()
                 print("sent: locals")
+            elif cmd_lower.startswith("p "):
+                parts = cmd.split(" ", 2)
+                if len(parts) >= 3:
+                    try:
+                        slot = int(parts[1])
+                        expr = parts[2]
+                        payload = bytes([slot]) + expr.encode()
+                        frame = bytes([0xAA, 0x18, len(payload)]) + payload
+                        ser.write(frame)
+                        ser.flush()
+                        print(f"sent: poke slot {slot} with {expr}")
+                    except Exception as e:
+                        print("invalid poke command: ", e)
+                else:
+                    print("usage: p <slot> <expr>")
+            elif cmd_lower.startswith("g "):
+                parts = cmd.split(" ", 2)
+                if len(parts) >= 3:
+                    try:
+                        name = parts[1]
+                        expr = parts[2]
+                        name_bytes = name.encode()
+                        if len(name_bytes) > 255:
+                            print("global name too long")
+                            continue
+                        payload = bytes([len(name_bytes)]) + name_bytes + expr.encode()
+                        frame = bytes([0xAA, 0x19, len(payload)]) + payload
+                        ser.write(frame)
+                        ser.flush()
+                        print(f"sent: poke global {name} with {expr}")
+                    except Exception as e:
+                        print("invalid poke global command: ", e)
+                else:
+                    print("usage: g <name> <expr>")
             else:
                 print("?")
     finally:
