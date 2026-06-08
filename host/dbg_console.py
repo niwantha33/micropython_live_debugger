@@ -12,7 +12,9 @@ import sys
 import threading
 import time
 import serial
+import json
 
+rta_events = []
 
 def reader_loop(ser, stop_evt):
     buf = bytearray()
@@ -40,6 +42,16 @@ def reader_loop(ser, stop_evt):
                 ip = payload[0] | (payload[1] << 8)
                 msg = payload[2:].decode(errors="replace")
                 print(f"EXCEPTION ip=0x{ip:04X} msg={msg}  <<< paused")
+            elif t == 0x05 and n == 8:
+                fun = payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
+                ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
+                print(f"RTA_ENTRY fun=0x{fun:08X} ts={ts}")
+                rta_events.append({"name": f"fun_0x{fun:08X}", "ph": "B", "ts": ts, "pid": 1, "tid": 1})
+            elif t == 0x06 and n == 8:
+                fun = payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
+                ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
+                print(f"RTA_EXIT  fun=0x{fun:08X} ts={ts}")
+                rta_events.append({"name": f"fun_0x{fun:08X}", "ph": "E", "ts": ts, "pid": 1, "tid": 1})
             else:
                 print(f"frame type=0x{t:02X} len={n} payload={payload.hex()}")
             del buf[:total]
@@ -72,6 +84,13 @@ def main():
             cmd_lower = cmd.lower()
             if cmd_lower == "q":
                 break
+            elif cmd_lower == "rtadump":
+                try:
+                    with open("rta_trace.json", "w") as f:
+                        json.dump(rta_events, f)
+                    print(f"saved {len(rta_events)} RTA events to rta_trace.json")
+                except Exception as e:
+                    print("failed to save RTA events:", e)
             elif cmd_lower == "c":
                 ser.write(bytes([0xAA, 0x10, 0x00]))
                 ser.flush()
