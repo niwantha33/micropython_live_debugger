@@ -36,6 +36,10 @@ def reader_loop(ser, stop_evt):
                 print(f"BP_HIT ip=0x{ip:04X}  <<< paused")
             elif t == 0x03:
                 print(f"LOCALS {payload.decode(errors='replace')}")
+            elif t == 0x04 and n >= 2:
+                ip = payload[0] | (payload[1] << 8)
+                msg = payload[2:].decode(errors="replace")
+                print(f"EXCEPTION ip=0x{ip:04X} msg={msg}  <<< paused")
             else:
                 print(f"frame type=0x{t:02X} len={n} payload={payload.hex()}")
             del buf[:total]
