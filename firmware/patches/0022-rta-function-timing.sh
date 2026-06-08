@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Patch 0022 — Real-Time Analysis (RTA) Function Timing
+# Also includes atomic frame pushes to prevent corrupted framing when ring buffer is full.
 
 set -euo pipefail
 MPY_DIR="${MPY_DIR:-$HOME/micropython}"
@@ -81,13 +82,18 @@ shadow_update_search = """        if (found >= 0) {
 
 shadow_update_replace = """        if (found >= 0) {
             if (mp_dbg_rta_enabled && found < shadow_top - 1) {
-                uint32_t ts = mp_hal_ticks_us();
-                dbg_push(0xAA);
-                dbg_push(0x06); // RTA EXIT
-                dbg_push(8);
-                uint32_t f_ptr = (uint32_t)(uintptr_t)shadow[shadow_top - 1].fun_bc;
-                dbg_push(f_ptr & 0xFF); dbg_push((f_ptr >> 8) & 0xFF); dbg_push((f_ptr >> 16) & 0xFF); dbg_push((f_ptr >> 24) & 0xFF);
-                dbg_push(ts & 0xFF); dbg_push((ts >> 8) & 0xFF); dbg_push((ts >> 16) & 0xFF); dbg_push((ts >> 24) & 0xFF);
+                uint16_t space = (dbg_tail - dbg_head - 1 + DBG_RING_SIZE) % DBG_RING_SIZE;
+                if (space >= 11) {
+                    uint32_t ts = mp_hal_ticks_us();
+                    dbg_push(0xAA);
+                    dbg_push(0x06); // RTA EXIT
+                    dbg_push(8);
+                    uint32_t f_ptr = (uint32_t)(uintptr_t)shadow[shadow_top - 1].fun_bc;
+                    dbg_push(f_ptr & 0xFF); dbg_push((f_ptr >> 8) & 0xFF); dbg_push((f_ptr >> 16) & 0xFF); dbg_push((f_ptr >> 24) & 0xFF);
+                    dbg_push(ts & 0xFF); dbg_push((ts >> 8) & 0xFF); dbg_push((ts >> 16) & 0xFF); dbg_push((ts >> 24) & 0xFF);
+                } else {
+                    mp_dbg_rta_enabled = 0; // Buffer full, stop RTA to avoid corruption
+                }
             }
             shadow_top = (uint8_t)(found + 1);
             shadow[found].fun_bc = (const void *)code_state->fun_bc;
@@ -96,17 +102,22 @@ shadow_update_replace = """        if (found >= 0) {
             shadow[shadow_top].fun_bc = (const void *)code_state->fun_bc;
             shadow_top++;
             if (mp_dbg_rta_enabled) {
-                uint32_t ts = mp_hal_ticks_us();
-                dbg_push(0xAA);
-                dbg_push(0x05); // RTA ENTRY
-                dbg_push(8);
-                uint32_t f_ptr = (uint32_t)(uintptr_t)code_state->fun_bc;
-                dbg_push(f_ptr & 0xFF); dbg_push((f_ptr >> 8) & 0xFF); dbg_push((f_ptr >> 16) & 0xFF); dbg_push((f_ptr >> 24) & 0xFF);
-                dbg_push(ts & 0xFF); dbg_push((ts >> 8) & 0xFF); dbg_push((ts >> 16) & 0xFF); dbg_push((ts >> 24) & 0xFF);
+                uint16_t space = (dbg_tail - dbg_head - 1 + DBG_RING_SIZE) % DBG_RING_SIZE;
+                if (space >= 11) {
+                    uint32_t ts = mp_hal_ticks_us();
+                    dbg_push(0xAA);
+                    dbg_push(0x05); // RTA ENTRY
+                    dbg_push(8);
+                    uint32_t f_ptr = (uint32_t)(uintptr_t)code_state->fun_bc;
+                    dbg_push(f_ptr & 0xFF); dbg_push((f_ptr >> 8) & 0xFF); dbg_push((f_ptr >> 16) & 0xFF); dbg_push((f_ptr >> 24) & 0xFF);
+                    dbg_push(ts & 0xFF); dbg_push((ts >> 8) & 0xFF); dbg_push((ts >> 16) & 0xFF); dbg_push((ts >> 24) & 0xFF);
+                } else {
+                    mp_dbg_rta_enabled = 0; // Buffer full, stop RTA to avoid corruption
+                }
             }
         }"""
 
-if "RTA ENTRY" not in s_c:
+if "space >= 11" not in s_c:
     if shadow_update_search not in s_c:
         raise SystemExit("FAIL: shadow update snippet not found in moddbg.c")
     s_c = s_c.replace(shadow_update_search, shadow_update_replace)
@@ -125,5 +136,5 @@ open(p_c, "w").write(s_c)
 PY
 
 grep -q 'mp_dbg_rta_enabled' "$MPY_DIR/py/moddbg.h" || { echo "FAIL: moddbg.h rta missing"; exit 1; }
-grep -q 'RTA ENTRY' "$MPY_DIR/py/moddbg.c" || { echo "FAIL: moddbg.c RTA entry missing"; exit 1; }
+grep -q 'space >= 11' "$MPY_DIR/py/moddbg.c" || { echo "FAIL: moddbg.c space check missing"; exit 1; }
 echo "    0022 applied OK"

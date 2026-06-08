@@ -31,10 +31,28 @@ def main():
                     buf.pop(0)
                 if len(buf) < 3:
                     break
+                ttype = buf[1]
                 tlen = buf[2]
+                
+                # Robust validation
+                is_valid = True
+                if ttype == 0x01 and tlen != 3:
+                    is_valid = False
+                elif ttype == 0x02 and tlen != 2:
+                    is_valid = False
+                elif ttype in (0x05, 0x06) and tlen != 8:
+                    is_valid = False
+                elif ttype not in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06):
+                    is_valid = False
+                elif tlen > 256:
+                    is_valid = False
+                    
+                if not is_valid:
+                    buf.pop(0)
+                    continue
+                    
                 if len(buf) < 3 + tlen:
                     break
-                ttype = buf[1]
                 payload = bytes(buf[3:3 + tlen])
                 del buf[:3 + tlen]
 

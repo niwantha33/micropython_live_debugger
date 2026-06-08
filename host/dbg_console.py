@@ -26,6 +26,25 @@ def reader_loop(ser, stop_evt):
         while len(buf) >= 3 and buf[0] == 0xAA:
             t = buf[1]
             n = buf[2]
+            
+            # Robust frame validation
+            is_valid = True
+            if t == 0x01 and n != 3:
+                is_valid = False
+            elif t == 0x02 and n != 2:
+                is_valid = False
+            elif t in (0x05, 0x06) and n != 8:
+                is_valid = False
+            elif t not in (0x01, 0x02, 0x03, 0x04, 0x05, 0x06):
+                is_valid = False
+            elif n > 256: # Avoid huge buffer reads on corrupt length
+                is_valid = False
+                
+            if not is_valid:
+                # Discard the false sync byte and search for the next 0xAA
+                buf.pop(0)
+                continue
+                
             total = 3 + n
             if len(buf) < total:
                 break
