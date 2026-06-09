@@ -47,6 +47,16 @@ def main():
                 elif tlen > 256:
                     is_valid = False
                     
+                if is_valid and ttype in (0x05, 0x06):
+                    if len(buf) >= 7:
+                        if buf[6] not in (0x20, 0x10):
+                            is_valid = False
+
+                if is_valid:
+                    total = 3 + tlen
+                    if len(buf) > total and buf[total] != 0xAA:
+                        is_valid = False
+
                 if not is_valid:
                     buf.pop(0)
                     continue

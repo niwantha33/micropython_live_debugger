@@ -40,6 +40,16 @@ def reader_loop(ser, stop_evt):
             elif n > 256: # Avoid huge buffer reads on corrupt length
                 is_valid = False
                 
+            if is_valid and t in (0x05, 0x06):
+                if len(buf) >= 7:
+                    if buf[6] not in (0x20, 0x10):
+                        is_valid = False
+
+            if is_valid:
+                total = 3 + n
+                if len(buf) > total and buf[total] != 0xAA:
+                    is_valid = False
+
             if not is_valid:
                 # Discard the false sync byte and search for the next 0xAA
                 buf.pop(0)
@@ -89,7 +99,7 @@ def main():
     stop_evt = threading.Event()
     t = threading.Thread(target=reader_loop, args=(ser, stop_evt), daemon=True)
     t.start()
-    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt q=quit")
+    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt \"rta on\"=\"RTA on\" \"rta off\"=\"RTA off\" rtadump=dump q=quit")
     try:
         while True:
             try:
@@ -103,6 +113,14 @@ def main():
             cmd_lower = cmd.lower()
             if cmd_lower == "q":
                 break
+            elif cmd_lower == "rta on":
+                ser.write(bytes([0xAA, 0x1B, 0x00]))
+                ser.flush()
+                print("sent: RTA ON")
+            elif cmd_lower == "rta off":
+                ser.write(bytes([0xAA, 0x1C, 0x00]))
+                ser.flush()
+                print("sent: RTA OFF")
             elif cmd_lower == "rtadump":
                 try:
                     with open("rta_trace.json", "w") as f:
