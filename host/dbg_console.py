@@ -13,9 +13,10 @@ import threading
 import time
 import serial
 import json
+import re
 
 rta_events = []
-active_flows = {}
+task_map = {}
 
 def reader_loop(ser, stop_evt):
     buf = bytearray()
@@ -67,7 +68,28 @@ def reader_loop(ser, stop_evt):
                 ip = payload[0] | (payload[1] << 8)
                 print(f"BP_HIT ip=0x{ip:04X}  <<< paused")
             elif t == 0x03:
-                print(f"LOCALS {payload.decode(errors='replace')}")
+                msg = payload.decode(errors='replace')
+                if msg.startswith("poked global __dbg_tasks"):
+                    val_str = msg.split("=", 1)[1].strip().strip("'\"")
+                    if val_str and val_str != "no_asyncio":
+                        for chunk in val_str.split(","):
+                            if ":" in chunk:
+                                addr_str, gen_str = chunk.split(":", 1)
+                                try:
+                                    fun_bc = int(addr_str)
+                                    m = re.search(r"object '([^']+)'", gen_str)
+                                    if m:
+                                        task_map[fun_bc] = m.group(1)
+                                    else:
+                                        m = re.search(r"object ([^\s]+)", gen_str)
+                                        task_map[fun_bc] = m.group(1) if m else "task"
+                                except ValueError:
+                                    pass
+                        print(f"Updated task_map: {task_map}")
+                    else:
+                        print("taskmap: no tasks found or asyncio not loaded")
+                else:
+                    print(f"LOCALS {msg}")
             elif t == 0x04 and n >= 2:
                 ip = payload[0] | (payload[1] << 8)
                 msg = payload[2:].decode(errors="replace")
@@ -77,16 +99,11 @@ def reader_loop(ser, stop_evt):
                 ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
                 print(f"RTA_ENTRY fun=0x{fun:08X} ts={ts}")
                 rta_events.append({"name": f"fun_0x{fun:08X}", "ph": "B", "ts": ts, "pid": 1, "tid": 1})
-                if active_flows.get(fun):
-                    rta_events.append({"name": f"flow_0x{fun:08X}", "ph": "f", "ts": ts, "pid": 1, "tid": 1, "id": fun, "bp": "e"})
-                    active_flows[fun] = False
             elif t == 0x06 and n == 8:
                 fun = payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
                 ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
                 print(f"RTA_EXIT  fun=0x{fun:08X} ts={ts}")
                 rta_events.append({"name": f"fun_0x{fun:08X}", "ph": "E", "ts": ts, "pid": 1, "tid": 1})
-                rta_events.append({"name": f"flow_0x{fun:08X}", "ph": "s", "ts": ts, "pid": 1, "tid": 1, "id": fun})
-                active_flows[fun] = True
             else:
                 print(f"frame type=0x{t:02X} len={n} payload={payload.hex()}")
             del buf[:total]
@@ -121,12 +138,20 @@ def main():
                 break
             elif cmd_lower == "tasks":
                 # Evaluate expression on the board to dump tasks from the asyncio queue
-                expr = "[str(getattr(t, 'coro', t)) for t in getattr(sys.modules.get('asyncio', sys.modules.get('uasyncio')).core._task_queue, 'q', [])]"
+                expr = "','.join(str(getattr(t, 'coro', t)) for t in getattr(sys.modules.get('asyncio', sys.modules.get('uasyncio')), 'core', type('',(),{'_task_queue':type('',(),{'q':[]})}))._task_queue.q)"
                 payload = bytes([0, 0]) + expr.encode()
                 frame = bytes([0xAA, 0x18, len(payload)]) + payload
                 ser.write(frame)
                 ser.flush()
                 print("sent: request pending tasks")
+            elif cmd_lower == "taskmap":
+                name = "__dbg_tasks"
+                expr = "','.join(str(__import__('machine').mem32[id(t.coro) + 8])+':'+str(t.coro) for t in __import__('sys').modules.get('asyncio', __import__('sys').modules.get('uasyncio')).core._task_queue.q) if 'asyncio' in __import__('sys').modules or 'uasyncio' in __import__('sys').modules else 'no_asyncio'"
+                payload = bytes([0, len(name)]) + name.encode() + expr.encode()
+                frame = bytes([0xAA, 0x19, len(payload)]) + payload
+                ser.write(frame)
+                ser.flush()
+                print("sent: mapping task pointers to names")
             elif cmd_lower == "rta on":
                 ser.write(bytes([0xAA, 0x1B, 0x00]))
                 ser.flush()
@@ -137,6 +162,45 @@ def main():
                 print("sent: RTA OFF")
             elif cmd_lower == "rtadump":
                 try:
+                    # FreeRTOS style thread restructuring
+                    current_tid = 1
+                    next_tid = 2
+                    task_tid_map = {}
+                    
+                    for ev in rta_events:
+                        if ev["ph"] in ("B", "E"):
+                            if ev["name"].startswith("fun_0x"):
+                                fun_ptr = int(ev["name"].replace("fun_0x", ""), 16)
+                            else:
+                                fun_ptr = -1
+
+                            if ev["ph"] == "B":
+                                if fun_ptr in task_map:
+                                    if fun_ptr not in task_tid_map:
+                                        task_tid_map[fun_ptr] = next_tid
+                                        next_tid += 1
+                                    current_tid = task_tid_map[fun_ptr]
+                                ev["tid"] = current_tid
+                            elif ev["ph"] == "E":
+                                ev["tid"] = current_tid
+                                if fun_ptr in task_map:
+                                    current_tid = 1 # Return to scheduler
+
+                            # Rename the task slice to its string name
+                            if fun_ptr in task_map:
+                                ev["name"] = task_map[fun_ptr]
+
+                    # Inject metadata for the new threads
+                    for fun_ptr, tid in task_tid_map.items():
+                        name = task_map[fun_ptr]
+                        rta_events.insert(0, {
+                            "name": "thread_name",
+                            "ph": "M",
+                            "pid": 1,
+                            "tid": tid,
+                            "args": {"name": name}
+                        })
+
                     with open("rta_trace.json", "w") as f:
                         json.dump(rta_events, f)
                     print(f"saved {len(rta_events)} RTA events to rta_trace.json")
