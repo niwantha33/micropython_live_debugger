@@ -15,6 +15,7 @@ import serial
 import json
 
 rta_events = []
+active_flows = {}
 
 def reader_loop(ser, stop_evt):
     buf = bytearray()
@@ -76,11 +77,16 @@ def reader_loop(ser, stop_evt):
                 ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
                 print(f"RTA_ENTRY fun=0x{fun:08X} ts={ts}")
                 rta_events.append({"name": f"fun_0x{fun:08X}", "ph": "B", "ts": ts, "pid": 1, "tid": 1})
+                if active_flows.get(fun):
+                    rta_events.append({"name": f"flow_0x{fun:08X}", "ph": "f", "ts": ts, "pid": 1, "tid": 1, "id": fun, "bp": "e"})
+                    active_flows[fun] = False
             elif t == 0x06 and n == 8:
                 fun = payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
                 ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
                 print(f"RTA_EXIT  fun=0x{fun:08X} ts={ts}")
                 rta_events.append({"name": f"fun_0x{fun:08X}", "ph": "E", "ts": ts, "pid": 1, "tid": 1})
+                rta_events.append({"name": f"flow_0x{fun:08X}", "ph": "s", "ts": ts, "pid": 1, "tid": 1, "id": fun})
+                active_flows[fun] = True
             else:
                 print(f"frame type=0x{t:02X} len={n} payload={payload.hex()}")
             del buf[:total]
@@ -99,7 +105,7 @@ def main():
     stop_evt = threading.Event()
     t = threading.Thread(target=reader_loop, args=(ser, stop_evt), daemon=True)
     t.start()
-    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt \"rta on\"=\"RTA on\" \"rta off\"=\"RTA off\" rtadump=dump q=quit")
+    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt \"rta on\" \"rta off\" rtadump tasks q=quit")
     try:
         while True:
             try:
@@ -113,6 +119,14 @@ def main():
             cmd_lower = cmd.lower()
             if cmd_lower == "q":
                 break
+            elif cmd_lower == "tasks":
+                # Evaluate expression on the board to dump tasks from the asyncio queue
+                expr = "[str(getattr(t, 'coro', t)) for t in getattr(sys.modules.get('asyncio', sys.modules.get('uasyncio')).core._task_queue, 'q', [])]"
+                payload = bytes([0, 0]) + expr.encode()
+                frame = bytes([0xAA, 0x18, len(payload)]) + payload
+                ser.write(frame)
+                ser.flush()
+                print("sent: request pending tasks")
             elif cmd_lower == "rta on":
                 ser.write(bytes([0xAA, 0x1B, 0x00]))
                 ser.flush()
