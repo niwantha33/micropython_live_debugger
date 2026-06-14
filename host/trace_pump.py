@@ -164,19 +164,25 @@ def _pump():
                 try:
                     depth = cmd_buf[3] if cmd_len > 0 else 0
                     try:
-                        g = dbg.globals(depth)
-                        while g is not None and g.get('__name__') == 'trace_pump':
-                            try:
-                                next_g = dbg.globals(depth + 1)
-                                if next_g is None:
+                        if hasattr(dbg, 'globals'):
+                            g = dbg.globals(depth)
+                            while g is not None and g.get('__name__') == 'trace_pump':
+                                try:
+                                    next_g = dbg.globals(depth + 1)
+                                    if next_g is None:
+                                        break
+                                    depth += 1
+                                    g = next_g
+                                except ValueError:
                                     break
-                                depth += 1
-                                g = next_g
-                            except ValueError:
-                                break
+                        else:
+                            g = None
                     except ValueError:
                         pass
-                    vals = dbg.locals(depth)
+                    try:
+                        vals = dbg.locals(depth)
+                    except TypeError:
+                        vals = dbg.locals()
                     if vals is None:
                         text = "(not paused)"
                     else:
@@ -201,20 +207,32 @@ def _pump():
                         expr_bytes = cmd_buf[4:total]
                     expr_str = expr_bytes.decode()
                     try:
-                        g = dbg.globals(depth_idx)
-                        while g is not None and g.get('__name__') == 'trace_pump':
-                            try:
-                                next_g = dbg.globals(depth_idx + 1)
-                                if next_g is None:
+                        if hasattr(dbg, 'globals'):
+                            g = dbg.globals(depth_idx)
+                            while g is not None and g.get('__name__') == 'trace_pump':
+                                try:
+                                    next_g = dbg.globals(depth_idx + 1)
+                                    if next_g is None:
+                                        break
+                                    depth_idx += 1
+                                    g = next_g
+                                except ValueError:
                                     break
-                                depth_idx += 1
-                                g = next_g
-                            except ValueError:
-                                break
+                        else:
+                            g = None
                     except ValueError:
                         g = None
+                    if g is None:
+                        try:
+                            import sys
+                            g = sys.modules['__main__'].__dict__
+                        except Exception:
+                            g = globals()
                     val = eval(expr_str, g if g is not None else {})
-                    res = dbg.poke(slot_idx, val, depth_idx)
+                    try:
+                        res = dbg.poke(slot_idx, val, depth_idx)
+                    except TypeError:
+                        res = dbg.poke(slot_idx, val)
                     if res:
                         text = "poked slot %d (depth %d) = %r" % (slot_idx, depth_idx, val)
                     else:
@@ -236,18 +254,27 @@ def _pump():
                     name = bytes(p[2:2+name_len]).decode()
                     expr = bytes(p[2+name_len:]).decode()
                     try:
-                        g = dbg.globals(depth_idx)
-                        while g is not None and g.get('__name__') == 'trace_pump':
-                            try:
-                                next_g = dbg.globals(depth_idx + 1)
-                                if next_g is None:
+                        if hasattr(dbg, 'globals'):
+                            g = dbg.globals(depth_idx)
+                            while g is not None and g.get('__name__') == 'trace_pump':
+                                try:
+                                    next_g = dbg.globals(depth_idx + 1)
+                                    if next_g is None:
+                                        break
+                                    depth_idx += 1
+                                    g = next_g
+                                except ValueError:
                                     break
-                                depth_idx += 1
-                                g = next_g
-                            except ValueError:
-                                break
+                        else:
+                            g = None
                     except ValueError:
                         g = None
+                    if g is None:
+                        try:
+                            import sys
+                            g = sys.modules['__main__'].__dict__
+                        except Exception:
+                            g = globals()
                     if g is not None:
                         val = eval(expr, g)
                         g[name] = val
@@ -255,7 +282,7 @@ def _pump():
                     else:
                         text = "poke global failed (no globals context)"
                 except Exception as e:
-                    text = "err: " + repr(e)
+                    text = "err: " + repr(e) + " in " + repr(expr)
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
@@ -267,18 +294,32 @@ def _pump():
                 try:
                     depth = cmd_buf[3] if cmd_len > 0 else 0
                     try:
-                        g = dbg.globals(depth)
-                        while g is not None and g.get('__name__') == 'trace_pump':
-                            try:
-                                next_g = dbg.globals(depth + 1)
-                                if next_g is None:
+                        if hasattr(dbg, 'globals'):
+                            g = dbg.globals(depth)
+                            while g is not None and g.get('__name__') == 'trace_pump':
+                                try:
+                                    next_g = dbg.globals(depth + 1)
+                                    if next_g is None:
+                                        break
+                                    depth += 1
+                                    g = next_g
+                                except ValueError:
                                     break
-                                depth += 1
-                                g = next_g
-                            except ValueError:
-                                break
+                        else:
+                            g = None
                     except ValueError:
                         g = None
+                    if g is None:
+                        try:
+                            paused = dbg.locals(0) is not None
+                        except Exception:
+                            paused = True
+                        if paused:
+                            try:
+                                import sys
+                                g = sys.modules['__main__'].__dict__
+                            except Exception:
+                                g = globals()
                     if g is None:
                         text = "(not paused)"
                     else:
@@ -335,8 +376,8 @@ def _pump():
         while cmd_buf and cmd_buf[0] != 0xAA:
             cmd_buf.pop(0)
 
-    dbg.unmute()
-    time.sleep_ms(5)
+        dbg.unmute()
+        time.sleep_ms(5)
 
 
 def start():
@@ -357,3 +398,80 @@ def stop():
 
 def stats():
     print("bytes_in =", bytes_in, "cmds =", cmds, "continues =", continues)
+
+
+def get_tasks():
+    try:
+        import asyncio, machine
+        q = asyncio.core._task_queue
+        t = []
+        while q.peek():
+            t.append(q.pop())
+        res = ','.join(str(x.coro) for x in t)
+        for x in t:
+            q.push(x, machine.mem32[id(x)+20])
+        return res
+    except Exception as e:
+        return "err: " + repr(e)
+
+
+def get_taskmap():
+    try:
+        import asyncio, machine
+        q = asyncio.core._task_queue
+        t = []
+        while q.peek():
+            t.append(q.pop())
+        res = ','.join('%d:%s' % (machine.mem32[id(x.coro)+8], x.coro) for x in t)
+        for x in t:
+            q.push(x, machine.mem32[id(x)+20])
+        return res
+    except Exception as e:
+        return "err: " + repr(e)
+
+
+_sym_list = []
+
+
+def get_symmap():
+    global _sym_list
+    try:
+        import sys
+        res = []
+        for n, m in list(sys.modules.items()):
+            if n not in ('sys', 'builtins'):
+                for k in dir(m):
+                    if k[0] != '_':
+                        try:
+                            o = getattr(m, k)
+                            t = type(o).__name__
+                            if t == 'function':
+                                res.append('%d:object \'%s.%s\'' % (id(o), n, k))
+                            elif t == 'type':
+                                for c in dir(o):
+                                    if c[0] != '_':
+                                        f = getattr(o, c)
+                                        if type(f).__name__ == 'function':
+                                            res.append('%d:object \'%s.%s.%s\'' % (id(f), n, k, c))
+                        except:
+                            pass
+        _sym_list = res
+        print("get_symmap populated _sym_list with", len(res), "items")
+        return str(len(res))
+    except Exception as e:
+        print("get_symmap error:", e)
+        return "err: " + repr(e)
+
+
+def get_symmap_chunk():
+    global _sym_list
+    try:
+        print("get_symmap_chunk called, current _sym_list len =", len(_sym_list))
+        chunk = _sym_list[:6]
+        del _sym_list[:6]
+        res = ','.join(chunk) if chunk else "None"
+        print("returning chunk:", res[:50])
+        return res
+    except Exception as e:
+        print("get_symmap_chunk error:", e)
+        return "err: " + repr(e)

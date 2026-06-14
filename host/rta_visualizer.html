@@ -1,0 +1,1331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MicroPython RTA Trace Visualizer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-color: #0b0f19;
+      --panel-bg: rgba(22, 28, 45, 0.6);
+      --panel-border: rgba(255, 255, 255, 0.08);
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --accent-color: #3b82f6;
+      --accent-glow: rgba(59, 130, 246, 0.35);
+      --success-color: #10b981;
+      --card-bg: #1e293b;
+      --font-main: 'Outfit', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      --font-mono: 'Space Grotesk', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: var(--font-main);
+      overflow-x: hidden;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Background ambient lights */
+    .ambient-glow {
+      position: absolute;
+      width: 500px;
+      height: 500px;
+      background: radial-gradient(circle, var(--accent-glow) 0%, rgba(11,15,25,0) 70%);
+      top: -200px;
+      left: -200px;
+      pointer-events: none;
+      z-index: -1;
+    }
+    .ambient-glow-right {
+      position: absolute;
+      width: 600px;
+      height: 600px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, rgba(11,15,25,0) 70%);
+      bottom: -300px;
+      right: -200px;
+      pointer-events: none;
+      z-index: -1;
+    }
+
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 1.25rem 2rem;
+      background: rgba(11, 15, 25, 0.8);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--panel-border);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .logo-icon {
+      width: 2.25rem;
+      height: 2.25rem;
+      background: linear-gradient(135deg, var(--accent-color), var(--success-color));
+      border-radius: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: #fff;
+      box-shadow: 0 0 15px var(--accent-glow);
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      letter-spacing: -0.025em;
+      background: linear-gradient(to right, #ffffff, #94a3b8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .controls-top {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .btn {
+      background: var(--card-bg);
+      border: 1px solid var(--panel-border);
+      color: var(--text-main);
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      cursor: pointer;
+      font-family: var(--font-main);
+      font-weight: 500;
+      font-size: 0.875rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      transition: all 0.2s ease;
+    }
+
+    .btn:hover {
+      background: #334155;
+      border-color: rgba(255,255,255,0.2);
+      transform: translateY(-1px);
+    }
+
+    .btn-primary {
+      background: var(--accent-color);
+      border-color: var(--accent-color);
+      box-shadow: 0 4px 12px var(--accent-glow);
+    }
+
+    .btn-primary:hover {
+      background: #2563eb;
+      box-shadow: 0 4px 20px var(--accent-glow);
+    }
+
+    .file-input-wrapper {
+      position: relative;
+      overflow: hidden;
+      display: inline-block;
+    }
+
+    .file-input-wrapper input[type=file] {
+      position: absolute;
+      left: 0;
+      top: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Layout */
+    .main-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+
+    .dropzone-overlay {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: rgba(11, 15, 25, 0.95);
+      border: 2px dashed var(--accent-color);
+      z-index: 100;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+    }
+
+    .dropzone-overlay.active {
+      opacity: 1;
+      pointer-events: all;
+    }
+
+    .dropzone-box {
+      background: var(--panel-bg);
+      border: 1px solid var(--panel-border);
+      padding: 3rem;
+      border-radius: 1rem;
+      text-align: center;
+      max-width: 500px;
+      backdrop-filter: blur(12px);
+    }
+
+    .dropzone-box h3 {
+      font-size: 1.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .dropzone-box p {
+      color: var(--text-muted);
+      margin-bottom: 1.5rem;
+    }
+
+    /* Trace Timeline & Toolbar */
+    .timeline-container {
+      flex: 3;
+      display: flex;
+      flex-direction: column;
+      border-bottom: 1px solid var(--panel-border);
+      background: #090d16;
+      position: relative;
+      min-height: 250px;
+    }
+
+    .timeline-toolbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 0.5rem 1.5rem;
+      background: rgba(22, 28, 45, 0.4);
+      border-bottom: 1px solid var(--panel-border);
+    }
+
+    .toolbar-group {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .search-box {
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid var(--panel-border);
+      padding: 0.4rem 0.75rem;
+      border-radius: 0.375rem;
+      color: var(--text-main);
+      font-family: var(--font-main);
+      font-size: 0.875rem;
+      width: 250px;
+      transition: all 0.2s ease;
+    }
+
+    .search-box:focus {
+      outline: none;
+      border-color: var(--accent-color);
+      box-shadow: 0 0 8px var(--accent-glow);
+    }
+
+    .shortcut-tip {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-left: 0.5rem;
+      background: rgba(255, 255, 255, 0.05);
+      padding: 0.2rem 0.4rem;
+      border-radius: 0.25rem;
+      font-family: var(--font-mono);
+    }
+
+    /* The canvas for trace */
+    .timeline-canvas-wrapper {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      cursor: crosshair;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* Tooltip styling */
+    .tooltip {
+      position: absolute;
+      pointer-events: none;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--panel-border);
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      border-radius: 0.5rem;
+      padding: 0.75rem 1rem;
+      font-size: 0.875rem;
+      color: var(--text-main);
+      z-index: 50;
+      display: none;
+      backdrop-filter: blur(8px);
+      transition: opacity 0.1s ease;
+      font-family: var(--font-main);
+      min-width: 220px;
+    }
+
+    .tooltip-title {
+      font-weight: 600;
+      color: #fff;
+      margin-bottom: 0.35rem;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+      padding-bottom: 0.25rem;
+      font-family: var(--font-mono);
+    }
+
+    .tooltip-row {
+      display: flex;
+      justify-content: space-between;
+      margin-top: 0.25rem;
+    }
+
+    .tooltip-label {
+      color: var(--text-muted);
+    }
+
+    .tooltip-value {
+      font-family: var(--font-mono);
+      font-weight: 500;
+      color: var(--text-main);
+    }
+
+    /* Bottom analysis panel */
+    .analysis-container {
+      flex: 2;
+      display: flex;
+      flex-direction: row;
+      background: #0f172a;
+      overflow: hidden;
+      min-height: 200px;
+    }
+
+    .stats-sidebar {
+      width: 25%;
+      border-right: 1px solid var(--panel-border);
+      padding: 1.5rem;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+      background: rgba(15, 23, 42, 0.4);
+    }
+
+    .stats-sidebar h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--panel-border);
+      padding-bottom: 0.5rem;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--panel-border);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .stat-card .label {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .stat-card .value {
+      font-size: 1.5rem;
+      font-weight: 700;
+      font-family: var(--font-mono);
+      color: #fff;
+    }
+
+    .stats-table-wrapper {
+      flex: 1;
+      padding: 1.5rem;
+      overflow-y: auto;
+    }
+
+    .stats-table-wrapper h3 {
+      font-size: 1.1rem;
+      margin-bottom: 1rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.875rem;
+      text-align: left;
+    }
+
+    th {
+      color: var(--text-muted);
+      font-weight: 500;
+      padding: 0.75rem 1rem;
+      border-bottom: 2px solid var(--panel-border);
+      cursor: pointer;
+      user-select: none;
+      transition: color 0.2s ease;
+    }
+
+    th:hover {
+      color: var(--text-main);
+    }
+
+    th.sorted-asc::after {
+      content: " ▲";
+      font-size: 0.75rem;
+    }
+
+    th.sorted-desc::after {
+      content: " ▼";
+      font-size: 0.75rem;
+    }
+
+    td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid var(--panel-border);
+      font-family: var(--font-mono);
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+      color: #fff;
+    }
+
+    .function-tag {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 3px;
+      margin-right: 0.5rem;
+      vertical-align: middle;
+    }
+
+    .empty-state {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      height: 100%;
+      color: var(--text-muted);
+      text-align: center;
+      gap: 1rem;
+    }
+
+    .empty-state-icon {
+      font-size: 3rem;
+      opacity: 0.5;
+    }
+
+    /* Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient-glow"></div>
+  <div class="ambient-glow-right"></div>
+
+  <header>
+    <div class="brand">
+      <div class="logo-icon">RTA</div>
+      <div>
+        <h1>Real-Time Analysis (RTA) Trace</h1>
+        <div style="font-size: 0.75rem; color: var(--text-muted);" id="trace-meta">No trace loaded</div>
+      </div>
+    </div>
+    <div class="controls-top">
+      <div class="file-input-wrapper">
+        <button class="btn btn-primary">📁 Load Trace JSON</button>
+        <input type="file" id="file-selector" accept=".json">
+      </div>
+      <button class="btn" id="btn-example" style="display:none;">Load Example</button>
+    </div>
+  </header>
+
+  <div class="main-container" id="main-container">
+    <!-- Dropzone overlay -->
+    <div class="dropzone-overlay" id="dropzone">
+      <div class="dropzone-box">
+        <h3>Drop RTA trace JSON here</h3>
+        <p>Drop your rta_trace.json file to visualize the event graph.</p>
+        <button class="btn btn-primary">Select File</button>
+      </div>
+    </div>
+
+    <!-- Timeline Wrapper -->
+    <div class="timeline-container">
+      <div class="timeline-toolbar">
+        <div class="toolbar-group">
+          <button class="btn btn-sm" id="btn-zoom-in" title="Zoom In (Scroll Up)">🔍+</button>
+          <button class="btn btn-sm" id="btn-zoom-out" title="Zoom Out (Scroll Down)">🔍-</button>
+          <button class="btn btn-sm" id="btn-reset" title="Reset view">Reset View</button>
+          <span class="shortcut-tip">Tip: Drag to Pan • Scroll to Zoom</span>
+        </div>
+        <div class="toolbar-group">
+          <input type="text" class="search-box" id="search-input" placeholder="Search functions...">
+        </div>
+      </div>
+      <div class="timeline-canvas-wrapper" id="canvas-wrapper">
+        <canvas id="timeline-canvas"></canvas>
+        <div class="tooltip" id="tooltip">
+          <div class="tooltip-title" id="tt-name">fun_0x2000</div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Duration:</span>
+            <span class="tooltip-value" id="tt-duration">10.2 ms</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Start Time:</span>
+            <span class="tooltip-value" id="tt-start">940.24 s</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">End Time:</span>
+            <span class="tooltip-value" id="tt-end">940.25 s</span>
+          </div>
+          <div class="tooltip-row">
+            <span class="tooltip-label">Task/Thread:</span>
+            <span class="tooltip-value" id="tt-thread">Main</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Analysis Dashboard -->
+    <div class="analysis-container">
+      <div class="stats-sidebar">
+        <h3>Trace Stats</h3>
+        <div class="stat-card">
+          <span class="label">Total Captured Events</span>
+          <span class="value" id="stat-total-events">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="label">Total Duration</span>
+          <span class="value" id="stat-duration">-</span>
+        </div>
+        <div class="stat-card">
+          <span class="label">Active Threads/Tasks</span>
+          <span class="value" id="stat-threads">-</span>
+        </div>
+      </div>
+      <div class="stats-table-wrapper">
+        <h3>
+          <span>Function Execution Profile</span>
+          <span style="font-size: 0.8rem; font-weight: normal; color: var(--text-muted);" id="table-filter-info"></span>
+        </h3>
+        <div style="overflow-x: auto;">
+          <table>
+            <thead>
+              <tr>
+                <th id="th-name" class="sorted-asc">Function</th>
+                <th id="th-calls">Calls</th>
+                <th id="th-total-time">Total Time (ms)</th>
+                <th id="th-avg-time">Avg Time (ms)</th>
+                <th id="th-max-time">Max Time (ms)</th>
+              </tr>
+            </thead>
+            <tbody id="stats-tbody">
+              <!-- Stats rows populated by JS -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State management
+    let rtaEvents = [];
+    let slices = []; // Processed function execution slices
+    let threadMap = {}; // thread ID -> thread Name
+    let threadList = []; // Array of sorted thread IDs
+    let functionColors = {}; // functionName -> HSL color
+
+    // Viewport management
+    let minTs = 0;
+    let maxTs = 0;
+    let viewMinTs = 0;
+    let viewMaxTs = 0;
+
+    // Timeline sizing
+    const ROW_HEIGHT = 65;
+    const ROW_GAP = 15;
+    const HEADER_HEIGHT = 30;
+    const LEFT_PANEL_WIDTH = 180;
+    let canvasHeight = 400;
+
+    // Interaction variables
+    let isDragging = false;
+    let dragStartX = 0;
+    let dragStartViewMin = 0;
+    let dragStartViewMax = 0;
+    let hoveredSlice = null;
+
+    // Table sorting state
+    let sortColumn = 'th-total-time';
+    let sortAscending = false;
+
+    // Colors pool
+    const colorPalette = [
+      'hsl(217, 91%, 60%)',  // Blue
+      'hsl(142, 70%, 45%)',  // Green
+      'hsl(37, 90%, 50%)',   // Amber
+      'hsl(326, 80%, 50%)',  // Pink
+      'hsl(262, 80%, 50%)',  // Purple
+      'hsl(168, 80%, 40%)',  // Teal
+      'hsl(15, 85%, 50%)',   // Orange
+      'hsl(199, 89%, 48%)',  // Light Blue
+      'hsl(283, 75%, 50%)',  // Violet
+      'hsl(48, 96%, 48%)'    // Yellow
+    ];
+    let nextColorIdx = 0;
+
+    const canvas = document.getElementById('timeline-canvas');
+    const ctx = canvas.getContext('2d');
+    const tooltip = document.getElementById('tooltip');
+    const searchInput = document.getElementById('search-input');
+
+    // Auto-detect trace file URL parameters
+    window.addEventListener('DOMContentLoaded', () => {
+      const urlParams = new URLSearchParams(window.location.search);
+      const traceParam = urlParams.get('trace');
+      if (traceParam) {
+        fetch(traceParam)
+          .then(res => res.json())
+          .then(data => loadTraceData(data, traceParam))
+          .catch(err => {
+            console.error("Failed to auto-load trace query file:", err);
+            showEmptyState();
+          });
+      } else {
+        // Look for rta_trace.json relative to server
+        fetch('../rta_trace.json')
+          .then(res => {
+            if (res.ok) return res.json();
+            throw new Error();
+          })
+          .then(data => loadTraceData(data, 'rta_trace.json'))
+          .catch(() => {
+            showEmptyState();
+          });
+      }
+    });
+
+    // Handle file loading
+    document.getElementById('file-selector').addEventListener('change', (e) => {
+      if (e.target.files.length > 0) {
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            loadTraceData(data, file.name);
+          } catch (err) {
+            alert("Error parsing trace file. Is it valid JSON?");
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    // Drag and drop setup
+    const dropzone = document.getElementById('dropzone');
+    const mainContainer = document.getElementById('main-container');
+
+    window.addEventListener('dragenter', (e) => {
+      e.preventDefault();
+      dropzone.classList.add('active');
+    });
+
+    dropzone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+    });
+
+    dropzone.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      if (e.relatedTarget === null || !dropzone.contains(e.relatedTarget)) {
+        dropzone.classList.remove('active');
+      }
+    });
+
+    dropzone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      dropzone.classList.remove('active');
+      if (e.dataTransfer.files.length > 0) {
+        const file = e.dataTransfer.files[0];
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const data = JSON.parse(event.target.result);
+            loadTraceData(data, file.name);
+          } catch (err) {
+            alert("Error parsing trace file. Is it valid JSON?");
+          }
+        };
+        reader.readAsText(file);
+      }
+    });
+
+    function showEmptyState() {
+      // Create empty state inside canvas-wrapper if no trace is loaded
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '16px Outfit';
+      ctx.textAlign = 'center';
+      ctx.fillText('Please drag & drop your rta_trace.json file or select it above.', canvas.width / 2, canvas.height / 2);
+    }
+
+    function getFuncColor(name) {
+      if (!functionColors[name]) {
+        functionColors[name] = colorPalette[nextColorIdx % colorPalette.length];
+        nextColorIdx++;
+      }
+      return functionColors[name];
+    }
+
+    // Load & Parse trace data
+    function loadTraceData(data, filename) {
+      if (!Array.isArray(data)) {
+        alert("Invalid trace data format. Root should be an array of event objects.");
+        return;
+      }
+      rtaEvents = data;
+      document.getElementById('trace-meta').textContent = `${filename} (${rtaEvents.length} events)`;
+
+      // Reset parsing state
+      slices = [];
+      threadMap = {};
+      functionColors = {};
+      nextColorIdx = 0;
+
+      // 1. First pass: extract thread metadata and calculate timestamps
+      let traceMin = Infinity;
+      let traceMax = -Infinity;
+
+      rtaEvents.forEach(ev => {
+        if (ev.ph === 'M' && ev.name === 'thread_name') {
+          threadMap[ev.tid] = ev.args.name || `Thread ${ev.tid}`;
+        }
+        if (ev.ts !== undefined) {
+          if (ev.ts < traceMin) traceMin = ev.ts;
+          if (ev.ts > traceMax) traceMax = ev.ts;
+        }
+      });
+
+      if (traceMin === Infinity) {
+        alert("No valid timestamps found in trace file.");
+        return;
+      }
+
+      minTs = traceMin;
+      maxTs = traceMax;
+      
+      // Default view is 100% of trace
+      viewMinTs = minTs;
+      viewMaxTs = maxTs;
+
+      // 2. Second pass: reconstruct call stack per thread (Gantt slices)
+      const stacks = {}; // tid -> array of open events
+
+      rtaEvents.forEach(ev => {
+        if (ev.ph !== 'B' && ev.ph !== 'E') return;
+
+        const tid = ev.tid || 1;
+        if (!threadMap[tid]) {
+          threadMap[tid] = `Thread ${tid}`;
+        }
+
+        if (!stacks[tid]) {
+          stacks[tid] = [];
+        }
+
+        if (ev.ph === 'B') {
+          // Push event onto the stack
+          stacks[tid].push({
+            name: ev.name,
+            start: ev.ts,
+            depth: stacks[tid].length
+          });
+        } else if (ev.ph === 'E') {
+          // Pop matched event from the stack (looking for matching name from top down)
+          let matchedIdx = -1;
+          for (let i = stacks[tid].length - 1; i >= 0; i--) {
+            if (stacks[tid][i].name === ev.name) {
+              matchedIdx = i;
+              break;
+            }
+          }
+
+          if (matchedIdx !== -1) {
+            const startNode = stacks[tid].splice(matchedIdx, 1)[0];
+            slices.push({
+              name: startNode.name,
+              start: startNode.start,
+              end: ev.ts,
+              duration: ev.ts - startNode.start,
+              tid: tid,
+              depth: startNode.depth
+            });
+
+            // Adjust depth of any stacked calls that were above the matched one
+            for (let i = matchedIdx; i < stacks[tid].length; i++) {
+              stacks[tid][i].depth--;
+            }
+          } else {
+            // Handle orphan end event (starts at beginning of trace)
+            slices.push({
+              name: ev.name,
+              start: minTs,
+              end: ev.ts,
+              duration: ev.ts - minTs,
+              tid: tid,
+              depth: 0
+            });
+          }
+        }
+      });
+
+      // Handle any unclosed begin events (running until end of trace)
+      Object.keys(stacks).forEach(tid => {
+        stacks[tid].forEach(node => {
+          slices.push({
+            name: node.name,
+            start: node.start,
+            end: maxTs,
+            duration: maxTs - node.start,
+            tid: parseInt(tid),
+            depth: node.depth
+          });
+        });
+      });
+
+      // Sort slices by start time
+      slices.sort((a, b) => a.start - b.start);
+
+      // Unique threads sorted
+      threadList = Object.keys(threadMap).map(Number).sort((a, b) => a - b);
+
+      // Update Dashboard Stats
+      document.getElementById('stat-total-events').textContent = rtaEvents.length.toLocaleString();
+      const totalDurationSec = (maxTs - minTs) / 1000000;
+      document.getElementById('stat-duration').textContent = formatDurationUs(maxTs - minTs);
+      document.getElementById('stat-threads').textContent = threadList.length;
+
+      // Initialize UI sizing and render
+      resizeCanvas();
+      calculateStatsAndPopulateTable();
+      draw();
+    }
+
+    function formatDurationUs(us) {
+      if (us < 1000) return `${us.toFixed(0)} μs`;
+      if (us < 1000000) return `${(us / 1000).toFixed(2)} ms`;
+      return `${(us / 1000000).toFixed(3)} s`;
+    }
+
+    // Canvas resize handler
+    function resizeCanvas() {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      canvas.width = rect.width * window.devicePixelRatio;
+      canvas.height = Math.max(300, (threadList.length * ROW_HEIGHT) + HEADER_HEIGHT + 20) * window.devicePixelRatio;
+      
+      canvas.style.width = '100%';
+      canvas.style.height = `${canvas.height / window.devicePixelRatio}px`;
+      
+      ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+      draw();
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+
+    // Drawing code
+    function draw() {
+      if (slices.length === 0) {
+        showEmptyState();
+        return;
+      }
+
+      const w = canvas.width / window.devicePixelRatio;
+      const h = canvas.height / window.devicePixelRatio;
+
+      // Clear
+      ctx.fillStyle = '#090d16';
+      ctx.fillRect(0, 0, w, h);
+
+      // Grid lines & Time markers
+      const timelineWidth = w - LEFT_PANEL_WIDTH - 20;
+      const scaleX = (ts) => LEFT_PANEL_WIDTH + ((ts - viewMinTs) / (viewMaxTs - viewMinTs)) * timelineWidth;
+      const invertX = (x) => viewMinTs + ((x - LEFT_PANEL_WIDTH) / timelineWidth) * (viewMaxTs - viewMinTs);
+
+      // Draw horizontal dividing grid lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+      ctx.lineWidth = 1;
+
+      // Time ticks helper
+      const timeSpan = viewMaxTs - viewMinTs;
+      let tickSpacing = 1000; // default 1ms ticks
+      if (timeSpan > 10000000) tickSpacing = 2000000; // 2s
+      else if (timeSpan > 5000000) tickSpacing = 1000000; // 1s
+      else if (timeSpan > 1000000) tickSpacing = 200000; // 200ms
+      else if (timeSpan > 500000) tickSpacing = 100000; // 100ms
+      else if (timeSpan > 100000) tickSpacing = 20000; // 20ms
+      else if (timeSpan > 10000) tickSpacing = 2000; // 2ms
+      else if (timeSpan > 1000) tickSpacing = 200; // 200us
+      else if (timeSpan > 100) tickSpacing = 20; // 20us
+
+      const startTick = Math.ceil(viewMinTs / tickSpacing) * tickSpacing;
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
+      ctx.font = '10px Space Grotesk';
+      ctx.textAlign = 'center';
+
+      for (let t = startTick; t <= viewMaxTs; t += tickSpacing) {
+        const x = scaleX(t);
+        ctx.beginPath();
+        ctx.moveTo(x, HEADER_HEIGHT);
+        ctx.lineTo(x, h);
+        ctx.stroke();
+
+        // Label (in ms or s)
+        const valSec = (t - minTs) / 1000000;
+        let label = `${(valSec * 1000).toFixed(1)} ms`;
+        if (valSec >= 1.0) label = `${valSec.toFixed(3)} s`;
+        ctx.fillText(label, x, HEADER_HEIGHT - 8);
+      }
+
+      // Draw rows for each Thread/Task
+      threadList.forEach((tid, idx) => {
+        const rowTop = HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_GAP;
+        
+        // Draw thread row background separator
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.015)';
+        ctx.fillRect(LEFT_PANEL_WIDTH, rowTop - 5, w - LEFT_PANEL_WIDTH, ROW_HEIGHT);
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.beginPath();
+        ctx.moveTo(0, rowTop + ROW_HEIGHT - 5);
+        ctx.lineTo(w, rowTop + ROW_HEIGHT - 5);
+        ctx.stroke();
+
+        // Draw Left Panel Label (Thread/Task Name)
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        ctx.fillRect(0, rowTop - 5, LEFT_PANEL_WIDTH, ROW_HEIGHT);
+
+        ctx.fillStyle = '#fff';
+        ctx.font = '500 12px Outfit';
+        ctx.textAlign = 'left';
+        ctx.fillText(threadMap[tid], 15, rowTop + ROW_HEIGHT / 2 - 4);
+
+        ctx.fillStyle = 'rgba(148, 163, 184, 0.6)';
+        ctx.font = '10px Space Grotesk';
+        ctx.fillText(`ID: ${tid}`, 15, rowTop + ROW_HEIGHT / 2 + 10);
+      });
+
+      // Filter query
+      const query = searchInput.value.toLowerCase().trim();
+
+      // Draw Slices
+      slices.forEach(slice => {
+        // Find thread row index
+        const tIdx = threadList.indexOf(slice.tid);
+        if (tIdx === -1) return;
+
+        // Clip view check
+        if (slice.end < viewMinTs || slice.start > viewMaxTs) return;
+
+        const rowTop = HEADER_HEIGHT + tIdx * ROW_HEIGHT + ROW_GAP;
+        const x1 = Math.max(LEFT_PANEL_WIDTH, scaleX(slice.start));
+        const x2 = Math.min(w - 20, scaleX(slice.end));
+        const width = Math.max(1.5, x2 - x1);
+
+        // Nested call stacks visualization
+        // Stack slices downwards within their thread row
+        const barHeight = Math.max(4, 18 - slice.depth * 3);
+        const y = rowTop + slice.depth * 15;
+
+        // Is active search result
+        const matchesQuery = query && slice.name.toLowerCase().includes(query);
+        const isHovered = hoveredSlice === slice;
+
+        // Render bar
+        ctx.fillStyle = getFuncColor(slice.name);
+        
+        // Dim if search is active and doesn't match
+        if (query && !matchesQuery) {
+          ctx.globalAlpha = 0.15;
+        } else if (isHovered) {
+          ctx.globalAlpha = 1.0;
+        } else {
+          ctx.globalAlpha = 0.85;
+        }
+
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(x1, y, width, barHeight, 3);
+        } else {
+          ctx.rect(x1, y, width, barHeight);
+        }
+        ctx.fill();
+
+        // Highlight stroke if hovered or searched
+        if (isHovered || matchesQuery) {
+          ctx.strokeStyle = isHovered ? '#fff' : 'rgba(255,255,255,0.7)';
+          ctx.lineWidth = isHovered ? 2 : 1;
+          ctx.stroke();
+        }
+
+        ctx.globalAlpha = 1.0;
+
+        // Text labels inside slices if wide enough
+        if (width > 65) {
+          ctx.fillStyle = '#fff';
+          ctx.font = '400 10px Space Grotesk';
+          ctx.textAlign = 'left';
+          // Truncate text
+          let txt = slice.name;
+          if (txt.startsWith("fun_")) txt = txt.replace("fun_", "");
+          const textWidth = ctx.measureText(txt).width;
+          if (textWidth + 8 < width) {
+            ctx.fillText(txt, x1 + 5, y + barHeight - 4);
+          }
+        }
+      });
+
+      // Left Panel Divider Line
+      ctx.strokeStyle = varColor('--panel-border');
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(LEFT_PANEL_WIDTH, 0);
+      ctx.lineTo(LEFT_PANEL_WIDTH, h);
+      ctx.stroke();
+    }
+
+    function varColor(cssName) {
+      return getComputedStyle(document.documentElement).getPropertyValue(cssName).trim();
+    }
+
+    // Hover, Zoom & Pan Handlers
+    canvas.addEventListener('mousemove', (e) => {
+      if (slices.length === 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+
+      const w = rect.width;
+      const timelineWidth = w - LEFT_PANEL_WIDTH - 20;
+      const scaleX = (ts) => LEFT_PANEL_WIDTH + ((ts - viewMinTs) / (viewMaxTs - viewMinTs)) * timelineWidth;
+      const invertX = (mx) => viewMinTs + ((mx - LEFT_PANEL_WIDTH) / timelineWidth) * (viewMaxTs - viewMinTs);
+
+      // Handle Panning
+      if (isDragging) {
+        const deltaX = e.clientX - dragStartX;
+        const deltaTs = (deltaX / timelineWidth) * (dragStartViewMax - dragStartViewMin);
+        
+        viewMinTs = dragStartViewMin - deltaTs;
+        viewMaxTs = dragStartViewMax - deltaTs;
+
+        // Clamp to trace bounds
+        if (viewMinTs < minTs) {
+          viewMaxTs += (minTs - viewMinTs);
+          viewMinTs = minTs;
+        }
+        if (viewMaxTs > maxTs) {
+          viewMinTs -= (viewMaxTs - maxTs);
+          viewMaxTs = maxTs;
+        }
+
+        draw();
+        return;
+      }
+
+      // Handle hover slice detection
+      const tsAtMouse = invertX(x);
+      
+      // Find row index under mouse
+      let hoveredThreadIdx = -1;
+      threadList.forEach((tid, idx) => {
+        const rowTop = HEADER_HEIGHT + idx * ROW_HEIGHT + ROW_GAP;
+        if (y >= rowTop - 5 && y <= rowTop + ROW_HEIGHT - 5) {
+          hoveredThreadIdx = idx;
+        }
+      });
+
+      let foundSlice = null;
+
+      if (hoveredThreadIdx !== -1 && x > LEFT_PANEL_WIDTH) {
+        const tid = threadList[hoveredThreadIdx];
+        
+        // Find smallest slice containing mouse coordinate and matching thread
+        let minSize = Infinity;
+        slices.forEach(slice => {
+          if (slice.tid !== tid) return;
+          if (tsAtMouse >= slice.start && tsAtMouse <= slice.end) {
+            // Check y bounds
+            const rowTop = HEADER_HEIGHT + hoveredThreadIdx * ROW_HEIGHT + ROW_GAP;
+            const barHeight = Math.max(4, 18 - slice.depth * 3);
+            const sliceY = rowTop + slice.depth * 15;
+            
+            if (y >= sliceY && y <= sliceY + barHeight) {
+              const sz = slice.end - slice.start;
+              if (sz < minSize) {
+                minSize = sz;
+                foundSlice = slice;
+              }
+            }
+          }
+        });
+      }
+
+      if (foundSlice !== hoveredSlice) {
+        hoveredSlice = foundSlice;
+        draw();
+        
+        if (hoveredSlice) {
+          // Show tooltip
+          tooltip.style.display = 'block';
+          tooltip.style.left = `${e.clientX - rect.left + 15}px`;
+          tooltip.style.top = `${e.clientY - rect.top + 15}px`;
+
+          document.getElementById('tt-name').textContent = hoveredSlice.name;
+          document.getElementById('tt-duration').textContent = formatDurationUs(hoveredSlice.duration);
+          document.getElementById('tt-start').textContent = formatDurationUs(hoveredSlice.start - minTs);
+          document.getElementById('tt-end').textContent = formatDurationUs(hoveredSlice.end - minTs);
+          document.getElementById('tt-thread').textContent = threadMap[hoveredSlice.tid];
+        } else {
+          tooltip.style.display = 'none';
+        }
+      } else if (hoveredSlice) {
+        // Keep moving tooltip with cursor
+        tooltip.style.left = `${e.clientX - rect.left + 15}px`;
+        tooltip.style.top = `${e.clientY - rect.top + 15}px`;
+      }
+    });
+
+    canvas.addEventListener('mousedown', (e) => {
+      if (slices.length === 0) return;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x < LEFT_PANEL_WIDTH) return; // ignore left panel clicks
+
+      isDragging = true;
+      dragStartX = e.clientX;
+      dragStartViewMin = viewMinTs;
+      dragStartViewMax = viewMaxTs;
+      canvas.style.cursor = 'grabbing';
+    });
+
+    window.addEventListener('mouseup', () => {
+      isDragging = false;
+      canvas.style.cursor = 'crosshair';
+    });
+
+    // Zooming via Wheel
+    canvas.addEventListener('wheel', (e) => {
+      if (slices.length === 0) return;
+      e.preventDefault();
+
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      if (x < LEFT_PANEL_WIDTH) return;
+
+      const timelineWidth = rect.width - LEFT_PANEL_WIDTH - 20;
+      const mouseTs = viewMinTs + ((x - LEFT_PANEL_WIDTH) / timelineWidth) * (viewMaxTs - viewMinTs);
+
+      // Zoom factor: 1.15
+      const zoomFactor = e.deltaY < 0 ? 0.85 : 1.15;
+      
+      const newMin = mouseTs - (mouseTs - viewMinTs) * zoomFactor;
+      const newMax = mouseTs + (viewMaxTs - mouseTs) * zoomFactor;
+
+      // Restrict zoom limits
+      if (newMax - newMin > 5) { // don't zoom below 5 microseconds
+        viewMinTs = Math.max(minTs, newMin);
+        viewMaxTs = Math.min(maxTs, newMax);
+        draw();
+      }
+    });
+
+    // Toolbar button interactions
+    document.getElementById('btn-zoom-in').addEventListener('click', () => {
+      const centerTs = (viewMinTs + viewMaxTs) / 2;
+      const span = (viewMaxTs - viewMinTs) * 0.75;
+      viewMinTs = Math.max(minTs, centerTs - span / 2);
+      viewMaxTs = Math.min(maxTs, centerTs + span / 2);
+      draw();
+    });
+
+    document.getElementById('btn-zoom-out').addEventListener('click', () => {
+      const centerTs = (viewMinTs + viewMaxTs) / 2;
+      const span = (viewMaxTs - viewMinTs) * 1.3;
+      viewMinTs = Math.max(minTs, centerTs - span / 2);
+      viewMaxTs = Math.min(maxTs, centerTs + span / 2);
+      draw();
+    });
+
+    document.getElementById('btn-reset').addEventListener('click', () => {
+      viewMinTs = minTs;
+      viewMaxTs = maxTs;
+      draw();
+    });
+
+    searchInput.addEventListener('input', () => {
+      draw();
+    });
+
+    // Statistics Generation & Sorting
+    function calculateStatsAndPopulateTable() {
+      const stats = {};
+
+      slices.forEach(slice => {
+        const name = slice.name;
+        if (!stats[name]) {
+          stats[name] = {
+            name: name,
+            calls: 0,
+            totalTime: 0,
+            maxTime: 0,
+            durations: []
+          };
+        }
+        stats[name].calls++;
+        stats[name].totalTime += slice.duration;
+        stats[name].durations.push(slice.duration);
+        if (slice.duration > stats[name].maxTime) {
+          stats[name].maxTime = slice.duration;
+        }
+      });
+
+      const statsList = Object.values(stats).map(s => {
+        s.avgTime = s.totalTime / s.calls;
+        return s;
+      });
+
+      renderStatsTable(statsList);
+    }
+
+    function renderStatsTable(statsList) {
+      const tbody = document.getElementById('stats-tbody');
+      tbody.innerHTML = '';
+
+      // Sort statsList
+      statsList.sort((a, b) => {
+        let valA, valB;
+        if (sortColumn === 'th-name') {
+          valA = a.name;
+          valB = b.name;
+          return sortAscending ? valA.localeCompare(valB) : valB.localeCompare(valA);
+        } else if (sortColumn === 'th-calls') {
+          valA = a.calls;
+          valB = b.calls;
+        } else if (sortColumn === 'th-total-time') {
+          valA = a.totalTime;
+          valB = b.totalTime;
+        } else if (sortColumn === 'th-avg-time') {
+          valA = a.avgTime;
+          valB = b.avgTime;
+        } else if (sortColumn === 'th-max-time') {
+          valA = a.maxTime;
+          valB = b.maxTime;
+        }
+        return sortAscending ? valA - valB : valB - valA;
+      });
+
+      statsList.forEach(s => {
+        const tr = document.createElement('tr');
+        tr.style.cursor = 'pointer';
+        
+        // Highlight in timeline when hovering over table row
+        tr.addEventListener('mouseenter', () => {
+          searchInput.value = s.name;
+          draw();
+        });
+        tr.addEventListener('mouseleave', () => {
+          searchInput.value = '';
+          draw();
+        });
+
+        tr.innerHTML = `
+          <td>
+            <span class="function-tag" style="background-color: ${getFuncColor(s.name)}"></span>
+            ${s.name}
+          </td>
+          <td>${s.calls}</td>
+          <td>${(s.totalTime / 1000).toFixed(2)}</td>
+          <td>${(s.avgTime / 1000).toFixed(2)}</td>
+          <td>${(s.maxTime / 1000).toFixed(2)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    // Set up table header sorting
+    const tableHeaders = ['th-name', 'th-calls', 'th-total-time', 'th-avg-time', 'th-max-time'];
+    tableHeaders.forEach(id => {
+      document.getElementById(id).addEventListener('click', () => {
+        if (sortColumn === id) {
+          sortAscending = !sortAscending;
+        } else {
+          sortColumn = id;
+          sortAscending = false;
+        }
+
+        // Update header classes
+        tableHeaders.forEach(hid => {
+          const el = document.getElementById(hid);
+          el.className = '';
+        });
+        document.getElementById(id).className = sortAscending ? 'sorted-asc' : 'sorted-desc';
+
+        calculateStatsAndPopulateTable();
+      });
+    });
+  </script>
+</body>
+</html>

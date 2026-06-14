@@ -17,8 +17,17 @@ import re
 
 rta_events = []
 task_map = {}
+is_paused = True
+
+def send_eval(ser, expr, name="__t"):
+    payload = bytes([0, len(name)]) + name.encode() + expr.encode()
+    frame = bytes([0xAA, 0x19, len(payload)]) + payload
+    ser.write(frame)
+    ser.flush()
+
 
 def reader_loop(ser, stop_evt):
+    global is_paused
     buf = bytearray()
     while not stop_evt.is_set():
         data = ser.read(64)
@@ -67,33 +76,41 @@ def reader_loop(ser, stop_evt):
             elif t == 0x02 and n == 2:
                 ip = payload[0] | (payload[1] << 8)
                 print(f"BP_HIT ip=0x{ip:04X}  <<< paused")
+                is_paused = True
             elif t == 0x03:
                 msg = payload.decode(errors='replace')
-                if msg.startswith("poked global __dbg_tasks"):
+                if msg.startswith("poked global __t") or msg.startswith("poked slot 0"):
                     val_str = msg.split("=", 1)[1].strip().strip("'\"")
-                    if val_str and val_str != "no_asyncio":
-                        for chunk in val_str.split(","):
-                            if ":" in chunk:
-                                addr_str, gen_str = chunk.split(":", 1)
-                                try:
-                                    fun_bc = int(addr_str)
-                                    m = re.search(r"object '([^']+)'", gen_str)
-                                    if m:
-                                        task_map[fun_bc] = m.group(1)
-                                    else:
-                                        m = re.search(r"object ([^\s]+)", gen_str)
-                                        task_map[fun_bc] = m.group(1) if m else "task"
-                                except ValueError:
-                                    pass
-                        print(f"Updated task_map: {task_map}")
+                    if val_str and val_str not in ("no_asyncio", "None"):
+                        if val_str.isdigit():
+                            count = int(val_str)
+                            print(f"Board has {count} symbols. Fetching first chunk...")
+                            send_eval(ser, "__import__('trace_pump').get_symmap_chunk()")
+                        else:
+                            for chunk in val_str.split(","):
+                                if ":" in chunk:
+                                    addr_str, gen_str = chunk.split(":", 1)
+                                    try:
+                                        fun_bc = int(addr_str)
+                                        m = re.search(r"object '([^']+)'", gen_str)
+                                        if m:
+                                            task_map[fun_bc] = m.group(1)
+                                        else:
+                                            m = re.search(r"object ([^\s]+)", gen_str)
+                                            task_map[fun_bc] = m.group(1) if m else "task"
+                                    except ValueError:
+                                        pass
+                            # Request next chunk
+                            send_eval(ser, "__import__('trace_pump').get_symmap_chunk()")
                     else:
-                        print("taskmap: no tasks found or asyncio not loaded")
+                        print("taskmap/symmap: done or no tasks/symbols found or asyncio not loaded")
                 else:
                     print(f"LOCALS {msg}")
             elif t == 0x04 and n >= 2:
                 ip = payload[0] | (payload[1] << 8)
                 msg = payload[2:].decode(errors="replace")
                 print(f"EXCEPTION ip=0x{ip:04X} msg={msg}  <<< paused")
+                is_paused = True
             elif t == 0x05 and n == 8:
                 fun = payload[0] | (payload[1] << 8) | (payload[2] << 16) | (payload[3] << 24)
                 ts = payload[4] | (payload[5] << 8) | (payload[6] << 16) | (payload[7] << 24)
@@ -112,6 +129,7 @@ def reader_loop(ser, stop_evt):
 
 
 def main():
+    global is_paused
     if len(sys.argv) < 2:
         print("usage: python dbg_console.py <COMx>")
         sys.exit(1)
@@ -122,7 +140,7 @@ def main():
     stop_evt = threading.Event()
     t = threading.Thread(target=reader_loop, args=(ser, stop_evt), daemon=True)
     t.start()
-    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt \"rta on\" \"rta off\" rtadump tasks q=quit")
+    print(f"open {port}. c=continue s=over i=in o=out l=locals p=poke g=global h=halt \"rta on\" \"rta off\" rtadump tasks taskmap symmap q=quit")
     try:
         while True:
             try:
@@ -137,21 +155,38 @@ def main():
             if cmd_lower == "q":
                 break
             elif cmd_lower == "tasks":
-                # Evaluate expression on the board to dump tasks from the asyncio queue
-                expr = "','.join(str(getattr(t, 'coro', t)) for t in getattr(sys.modules.get('asyncio', sys.modules.get('uasyncio')), 'core', type('',(),{'_task_queue':type('',(),{'q':[]})}))._task_queue.q)"
-                payload = bytes([0, 0]) + expr.encode()
-                frame = bytes([0xAA, 0x18, len(payload)]) + payload
+                if not is_paused:
+                    print("Cannot execute command: board is not paused. Please halt the board first (type 'h' or Ctrl-C).")
+                    continue
+                name = "__t"
+                expr = "__import__('trace_pump').get_tasks()"
+                payload = bytes([0, len(name)]) + name.encode() + expr.encode()
+                frame = bytes([0xAA, 0x19, len(payload)]) + payload
                 ser.write(frame)
                 ser.flush()
                 print("sent: request pending tasks")
             elif cmd_lower == "taskmap":
-                name = "__dbg_tasks"
-                expr = "','.join(str(__import__('machine').mem32[id(t.coro) + 8])+':'+str(t.coro) for t in __import__('sys').modules.get('asyncio', __import__('sys').modules.get('uasyncio')).core._task_queue.q) if 'asyncio' in __import__('sys').modules or 'uasyncio' in __import__('sys').modules else 'no_asyncio'"
+                if not is_paused:
+                    print("Cannot execute command: board is not paused. Please halt the board first (type 'h' or Ctrl-C).")
+                    continue
+                name = "__t"
+                expr = "__import__('trace_pump').get_taskmap()"
                 payload = bytes([0, len(name)]) + name.encode() + expr.encode()
                 frame = bytes([0xAA, 0x19, len(payload)]) + payload
                 ser.write(frame)
                 ser.flush()
                 print("sent: mapping task pointers to names")
+            elif cmd_lower == "symmap":
+                if not is_paused:
+                    print("Cannot execute command: board is not paused. Please halt the board first (type 'h' or Ctrl-C).")
+                    continue
+                name = "__t"
+                expr = "__import__('trace_pump').get_symmap()"
+                payload = bytes([0, len(name)]) + name.encode() + expr.encode()
+                frame = bytes([0xAA, 0x19, len(payload)]) + payload
+                ser.write(frame)
+                ser.flush()
+                print("sent: mapping function pointers to names")
             elif cmd_lower == "rta on":
                 ser.write(bytes([0xAA, 0x1B, 0x00]))
                 ser.flush()
@@ -204,21 +239,26 @@ def main():
                     with open("rta_trace.json", "w") as f:
                         json.dump(rta_events, f)
                     print(f"saved {len(rta_events)} RTA events to rta_trace.json")
+                    print("To visualize the RTA trace graph, run: python host/rta_visualizer.py")
                 except Exception as e:
                     print("failed to save RTA events:", e)
             elif cmd_lower == "c":
+                is_paused = False
                 ser.write(bytes([0xAA, 0x10, 0x00]))
                 ser.flush()
                 print("sent: continue")
             elif cmd_lower == "s":
+                is_paused = False
                 ser.write(bytes([0xAA, 0x11, 0x00]))
                 ser.flush()
                 print("sent: step")
             elif cmd_lower == "i":
+                is_paused = False
                 ser.write(bytes([0xAA, 0x13, 0x00]))
                 ser.flush()
                 print("sent: step-in")
             elif cmd_lower == "o":
+                is_paused = False
                 ser.write(bytes([0xAA, 0x14, 0x00]))
                 ser.flush()
                 print("sent: step-out")
@@ -226,7 +266,42 @@ def main():
                 ser.write(bytes([0xAA, 0x20, 0x00]))
                 ser.flush()
                 print("sent: halt")
+            elif cmd_lower.startswith("bp "):
+                parts = cmd.split(" ", 3)
+                if len(parts) == 4:
+                    try:
+                        mn = parts[1]
+                        fn = parts[2]
+                        line = int(parts[3])
+                        mn_bytes = mn.encode()
+                        fn_bytes = fn.encode()
+                        line_bytes = bytes([line & 0xFF, (line >> 8) & 0xFF])
+                        payload = bytes([len(mn_bytes)]) + mn_bytes + bytes([len(fn_bytes)]) + fn_bytes + line_bytes
+                        frame = bytes([0xAA, 0x15, len(payload)]) + payload
+                        ser.write(frame)
+                        ser.flush()
+                        print(f"sent: set breakpoint at {mn}.{fn}:{line}")
+                    except Exception as e:
+                        print("invalid bp command: ", e)
+                else:
+                    print("usage: bp <module> <function> <line>")
+            elif cmd_lower.startswith("cbp "):
+                parts = cmd.split(" ", 1)
+                if len(parts) == 2:
+                    try:
+                        slot = int(parts[1])
+                        frame = bytes([0xAA, 0x16, 0x01, slot])
+                        ser.write(frame)
+                        ser.flush()
+                        print(f"sent: clear breakpoint slot {slot}")
+                    except Exception as e:
+                        print("invalid cbp command: ", e)
+                else:
+                    print("usage: cbp <slot>")
             elif cmd_lower.startswith("l"):
+                if not is_paused:
+                    print("Cannot execute command: board is not paused. Please halt the board first (type 'h' or Ctrl-C).")
+                    continue
                 parts = cmd.split(" ", 1)
                 try:
                     depth = int(parts[1]) if len(parts) > 1 else 0
@@ -236,6 +311,9 @@ def main():
                 except Exception as e:
                     print("invalid locals command: ", e)
             elif cmd_lower.startswith("p "):
+                if not is_paused:
+                    print("Cannot execute command: board is not paused. Please halt the board first (type 'h' or Ctrl-C).")
+                    continue
                 parts = cmd.split(" ", 3)
                 if len(parts) >= 3:
                     try:
@@ -261,6 +339,9 @@ def main():
                 else:
                     print("usage: p <slot> [depth] <expr>")
             elif cmd_lower.startswith("g "):
+                if not is_paused:
+                    print("Cannot execute command: board is not paused. Please halt the board first (type 'h' or Ctrl-C).")
+                    continue
                 parts = cmd.split(" ", 3)
                 if len(parts) >= 3:
                     try:
