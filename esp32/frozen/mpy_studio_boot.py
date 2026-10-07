@@ -40,13 +40,19 @@ def configure_usb():
         product_str="MicroPython Studio ESP32-S3 Debug",
     )
 
-    import dbgref
+    import mpy_studio_dbgref as dbgref
     dbgref.cdc = dbg_cdc
+
+    # The filesystem is searched before .frozen on ESP32. Register aliases now
+    # so stale /trace_pump.py or /dbgref.py files can never shadow the frozen
+    # debugger implementation used by this firmware.
+    sys.modules["dbgref"] = dbgref
 
 
 def start_pump():
     # Called only AFTER mp_usbd_init() by mpy_studio_start.py.
-    import trace_pump
+    import mpy_studio_trace_pump as trace_pump
+    sys.modules["trace_pump"] = trace_pump
     trace_pump.get_taskmap = _esp32_taskmap
     trace_pump.get_tasks = _esp32_tasks
     trace_pump.start()
