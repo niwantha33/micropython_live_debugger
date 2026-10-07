@@ -66,14 +66,18 @@ jobs:
           command: make BOARD=ESP32_GENERIC_S3 FROZEN_MANIFEST="$PWD/boards/ESP32_GENERIC_S3/manifest_debugger.py" submodules && make BOARD=ESP32_GENERIC_S3 FROZEN_MANIFEST="$PWD/boards/ESP32_GENERIC_S3/manifest_debugger.py" -j4
 
       - name: Decode reported ESP32-S3 RTA watchdog backtrace
-        run: |
-          BUILD="$GITHUB_WORKSPACE/micropython/ports/esp32/build-ESP32_GENERIC_S3"
-          ELF="$BUILD/micropython.elf"
-          test -s "$ELF"
-          echo "=== CPU1 ==="
-          xtensa-esp32s3-elf-addr2line -pfiaC -e "$ELF"             0x40388bda 0x40389bd5 0x403880f5 0x4202c3c1 0x4202a20a             0x4204736e 0x42032399 0x4203a179 0x4203a243 0x4037aa9a             0x420324bf 0x4203a179 0x4203a243 0x4037aa9a 0x420324bf             0x4203a179 0x4203a18e 0x4204b996 0x4204bc70 0x42029c5c
-          echo "=== CPU0 ==="
-          xtensa-esp32s3-elf-addr2line -pfiaC -e "$ELF"             0x40384a71 0x403894f2 0x403888cb 0x40380d1a 0x40384b67             0x420a9ad2 0x421478b4 0x40389114
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: micropython/ports/esp32
+          command: |
+            ELF="$PWD/build-ESP32_GENERIC_S3/micropython.elf"
+            test -s "$ELF"
+            echo "=== CPU1 ==="
+            xtensa-esp32s3-elf-addr2line -pfiaC -e "$ELF" 0x40388bda 0x40389bd5 0x403880f5 0x4202c3c1 0x4202a20a 0x4204736e 0x42032399 0x4203a179 0x4203a243 0x4037aa9a 0x420324bf 0x4203a179 0x4203a243 0x4037aa9a 0x420324bf 0x4203a179 0x4203a18e 0x4204b996 0x4204bc70 0x42029c5c
+            echo "=== CPU0 ==="
+            xtensa-esp32s3-elf-addr2line -pfiaC -e "$ELF" 0x40384a71 0x403894f2 0x403888cb 0x40380d1a 0x40384b67 0x420a9ad2 0x421478b4 0x40389114
 
       - name: Upload ESP32-S3 ELF and map for crash analysis
         uses: actions/upload-artifact@v4
