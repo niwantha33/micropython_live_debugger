@@ -1,8 +1,14 @@
 # ESP32-S3 debugger test — simple step-by-step guide
 
-This guide is written for hardware testing. Follow the steps in order.
-
-Do **not** skip ahead.
+> **Current hardware-test rule (important)**
+>
+> Use the board's **Serial Port connector** for MicroPython REPL, file upload,
+> package installation and recovery.
+>
+> Use the board's **native USB connector** only for the debugger/RTA transport.
+>
+> Do **not** try to upload files or run MIP through the native USB COM ports
+> during this test phase.
 
 ---
 
@@ -12,9 +18,9 @@ Your ESP32-S3 board has two physical USB connectors.
 
 For testing, think of them like this:
 
-### Connector A — normal serial / recovery connection
+### Connector A — Serial Port (this is the upload/REPL port)
 
-Use this connector when you need the normal MicroPython prompt:
+Use this connector for all normal MicroPython work:
 
 ```text
 >>>
@@ -31,21 +37,16 @@ The Windows COM number can change. Do not rely on a fixed COM number.
 
 Use the port that actually gives you the MicroPython `>>>` prompt.
 
-### Connector B — native USB connection
+### Connector B — native USB (debugger transport)
 
-This is the USB connector used by the new debugger firmware.
+This connector is used only for the debugger/RTA test.
 
-Our target is:
+Windows currently shows two COM ports from this connector (for example COM12
+and COM13). During this hardware-test phase they are **not upload ports**.
 
-```text
-one physical native USB cable
-        |
-        +-- CDC0 -> MicroPython REPL
-        |
-        +-- CDC1 -> MicroPython Studio debugger / RTA
-```
-
-Windows should eventually show **two COM ports from this one native USB connector**.
+Use Studio **Start Debug → Connect only** to find which one answers the debugger
+handshake. Do not run MIP, file upload, or package installation on either native
+USB COM port.
 
 ---
 
@@ -236,44 +237,25 @@ Do not test Studio yet.
 
 ---
 
-## 8. Check the two COM ports
+## 8. Check the native USB COM ports
 
-Now look at Windows Device Manager or Studio's port list.
+Keep using the **Serial Port connector** for the MicroPython `>>>` prompt.
 
-The native USB connector should create two logical serial ports.
-
-Think of them as:
+The native USB connector may show two COM ports, for example:
 
 ```text
-COM-A -> REPL
-COM-B -> debugger
+COM12
+COM13
 ```
 
-The actual COM numbers are not important.
+Do not test them with file upload or MIP.
 
-They may change after firmware updates or reconnects.
+In Studio choose **Start Debug → Connect only** and try the two native USB COM
+ports one at a time.
 
-### How to identify the REPL port
+The debugger port is the one that answers the debugger handshake.
 
-Open one port.
-
-Press Enter.
-
-If you see:
-
-```text
->>>
-```
-
-that is the REPL port.
-
-Close it before testing the other port.
-
-### The other port
-
-The other CDC port is the debugger port.
-
-Do not expect a Python `>>>` prompt from the debugger port.
+The other native USB COM port is not used for upload in this test phase.
 
 ---
 
@@ -387,12 +369,15 @@ For the ESP32-S3 test firmware:
 ```text
 DO:
   flash combined firmware
-  use native USB
-  use Connect only
+  use Serial Port for REPL/upload/recovery
+  use native USB for debugger only
+  use Connect only on the native USB COM ports
   test in small steps
 
 DO NOT:
-  install usb-device-cdc with MIP
+  upload files through native USB COM12/COM13
+  run MIP through native USB COM12/COM13
+  install usb-device-cdc manually
   upload the Pico boot.py
   run Pico debugger setup files
   erase project files
