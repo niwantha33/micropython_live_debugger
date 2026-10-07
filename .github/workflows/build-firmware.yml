@@ -1,20 +1,17 @@
 name: Build debugger firmware
 
-env:
-  # Pinned for reproducible debugger UF2s. This is the upstream revision used
-  # by the hardware-test RTA artifact verified on 2026-10-07.
-  MICROPYTHON_REF: a129b2fba1a3348088c94d0462eef16d20874dea
-
 on:
   push:
     branches:
       - main
     paths:
       - 'firmware/patches/**'
+      - 'firmware/MICROPYTHON_REF'
       - '.github/workflows/build-firmware.yml'
   pull_request:
     paths:
       - 'firmware/patches/**'
+      - 'firmware/MICROPYTHON_REF'
       - '.github/workflows/build-firmware.yml'
   workflow_dispatch:
 
@@ -55,6 +52,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi cmake build-essential python3 git
+
+      - name: Load pinned MicroPython revision
+        run: |
+          MICROPYTHON_REF="$(tr -d '[:space:]' < firmware/MICROPYTHON_REF)"
+          test -n "$MICROPYTHON_REF"
+          echo "MICROPYTHON_REF=$MICROPYTHON_REF" >> "$GITHUB_ENV"
 
       - name: Clone pinned MicroPython
         run: |
@@ -114,29 +117,3 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
-  publish:
-    name: Publish firmware
-    needs: build-rp2
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-
-    steps:
-      - name: Download built firmware
-        uses: actions/download-artifact@v4
-        with:
-          pattern: debug-firmware-*
-          path: staged
-          merge-multiple: true
-
-      - name: Publish to Studio firmware repository
-        env:
-          TOKEN: ${{ secrets.FIRMWARE_REPO_TOKEN }}
-        run: |
-          git config --global user.email "bot@niwantha33.local"
-          git config --global user.name "firmware-bot"
-          git clone "https://x-access-token:${TOKEN}@github.com/niwantha33/micropython_live_dbg_firmware.git" firmware-repo
-          cp -R staged/* firmware-repo/
-          cd firmware-repo
-          git add Pico/ Picow/ Pico2/ Pico2w/
-          git commit -m "auto: debugger firmware from ${GITHUB_SHA::7}" || echo "no changes"
-          git push
