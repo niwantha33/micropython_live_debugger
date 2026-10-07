@@ -1,9 +1,11 @@
-# mpy_studio_boot.py -- frozen ESP32-S3 MicroPython Studio debugger bootstrap.
+# mpy_studio_boot.py -- ESP32-S3 dual-CDC descriptor setup.
 #
-# Runs before user boot.py and before mp_usbd_init().
-# One physical USB cable enumerates:
-#   CDC0: built-in MicroPython REPL
-#   CDC1: MicroPython Studio debugger/RTA
+# Runs from the stock frozen _boot.py BEFORE mp_usbd_init().
+# IMPORTANT: do not start threads here.
+#
+# One native USB cable:
+#   CDC0: built-in MicroPython REPL / raw REPL / file upload
+#   CDC1: MicroPython Studio debugger / RTA
 
 import sys
 
@@ -20,13 +22,14 @@ def _esp32_tasks():
         return "err: " + repr(e)
 
 
-def _start_debug_usb():
+def configure_usb():
     import usb.device
     from usb.device.cdc import CDCInterface
 
     dbg_cdc = CDCInterface(timeout=0, txbuf=4096, rxbuf=512)
 
-    # Keep the built-in TinyUSB CDC REPL and append the debugger CDC.
+    # Preserve the built-in TinyUSB CDC0 (MicroPython stdio) and append CDC1.
+    # This must happen before mp_usbd_init().
     usb.device.get().init(
         dbg_cdc,
         builtin_driver=True,
@@ -36,15 +39,17 @@ def _start_debug_usb():
     import dbgref
     dbgref.cdc = dbg_cdc
 
+
+def start_pump():
+    # Called only AFTER mp_usbd_init() by mpy_studio_start.py.
     import trace_pump
-    # Never use RP2 object-layout offsets on Xtensa.
     trace_pump.get_taskmap = _esp32_taskmap
     trace_pump.get_tasks = _esp32_tasks
     trace_pump.start()
 
 
 try:
-    _start_debug_usb()
+    configure_usb()
 except Exception as e:
-    # Debug USB failure must never brick the normal REPL.
+    # Never prevent the normal REPL from booting.
     sys.print_exception(e)
