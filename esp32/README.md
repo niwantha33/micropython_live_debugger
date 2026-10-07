@@ -1,57 +1,46 @@
-# ESP32-S3 debugger test path
+# ESP32-S3 single-USB debugger test
 
-This port intentionally does **not** reuse the RP2 dual-USB-CDC wiring.
+The ESP32-S3 port uses **one physical native USB connection** and exposes two
+logical CDC serial interfaces through the MicroPython TinyUSB runtime device:
 
-## Transport v1: dedicated UART
+- CDC0 — normal MicroPython REPL / file workflow
+- CDC1 — MicroPython Studio debugger / breakpoints / RTA
 
-For the first ESP32-S3 hardware validation, keep the normal MicroPython
-REPL/flash interface untouched and carry debugger frames over UART1 to a
-separate 3.3 V USB-UART adapter.
+No external USB-UART adapter is required.
 
-This isolates debugger transport problems from USB-console/bootloader problems
-and preserves the existing framed protocol and VS Code serial bridge.
+## Why this differs from the first test artifact
 
-### Wiring
+The first ESP32-S3 artifact proved that the debugger C API builds and links on
+Xtensa/ESP-IDF, but its proposed transport was a conservative UART fallback.
+The actual Studio target is the same user experience as Pico: two logical COM
+ports over one USB cable.
 
-Choose two free GPIOs for your board:
-
-- ESP32-S3 debug TX -> USB-UART RX
-- ESP32-S3 debug RX <- USB-UART TX
-- ESP32-S3 GND -> USB-UART GND
-
-Use **3.3 V logic**. Do not connect a 5 V UART signal to ESP32 GPIO.
-
-The module does not hard-code pins because ESP32-S3 boards expose different
-GPIOs. Example only:
+MicroPython's ESP32-S3 port at the pinned revision enables native USB device and
+runtime `machine.USBDevice` support. The test `boot.py` creates a second
+`CDCInterface` and calls:
 
 ```python
-import esp32_debug_uart
-esp32_debug_uart.start(tx=17, rx=18)
+usb.device.get().init(dbg_cdc, builtin_driver=True)
 ```
 
-Default debug baud is 115200 for compatibility with the current Studio serial
-bridge. Once the control path is hardware-verified, the transport can be raised
-to 921600 for RTA throughput.
+`builtin_driver=True` preserves the built-in REPL CDC while adding the
+debugger CDC to the same composite USB device.
 
-## Files required on the device
+## Files to place on the ESP32-S3 filesystem
 
-Upload:
+- `boot.py` from this test package
+- current Studio `trace_pump.py`
+- `dbgref.py`
 
-- the current Studio `trace_pump.py`
-- the current Studio `dbgref.py`
-- `esp32_debug_uart.py` from this directory
+The `usb.device.cdc` helper package must also be available on the board (same
+runtime USB helper used by the Pico dual-CDC debugger setup).
 
-Do **not** upload the RP2 dual-CDC `boot.py`.
+Reset the board after installing these files. Windows should enumerate two COM
+ports from the single ESP32-S3 USB cable.
 
-Then start the transport manually from the normal REPL using the board-specific
-TX/RX pins.
+## First validation
 
-In Studio, choose **Connect only** and select the USB-UART adapter COM port as
-the debugger port.
-
-## First hardware gate
-
-Before testing Studio transport, verify the firmware API at the normal REPL:
+Normal REPL:
 
 ```python
 import dbg
@@ -62,11 +51,17 @@ print(hasattr(dbg, "rta_on"))
 print(hasattr(dbg, "rta_off"))
 ```
 
-All five must print `True`.
+All should be `True`.
 
-## Deliberately deferred
+Then confirm Windows shows two COM ports. Keep the normal REPL on CDC0 and use
+CDC1 with MicroPython Studio → Start Debug → Connect only.
 
-- RP2-style dual CDC on ESP32-S3
-- architecture-specific asyncio Task Map pointer decoding
-- automatic boot-time UART pin selection
-- ESP32-C3 (after S3 hardware validation)
+## Deliberately disabled for first ESP32-S3 hardware validation
+
+The RP2 Task Map implementation reads internal asyncio object fields using
+RP2040/RP2350-specific memory offsets. The ESP32-S3 boot shim replaces that
+function with an explicit unsupported result rather than guessing Xtensa object
+layout.
+
+Breakpoints, stepping, locals, call stack and RTA use the common debugger API
+and remain enabled.
