@@ -1,67 +1,73 @@
 # ESP32-S3 single-USB debugger test
 
-The ESP32-S3 port uses **one physical native USB connection** and exposes two
-logical CDC serial interfaces through the MicroPython TinyUSB runtime device:
+This port uses **one physical native USB connector** and exposes two logical
+CDC serial interfaces through the same ESP32-S3 TinyUSB device:
 
-- CDC0 — normal MicroPython REPL / file workflow
+- CDC0 — normal MicroPython REPL
 - CDC1 — MicroPython Studio debugger / breakpoints / RTA
 
 No external USB-UART adapter is required.
 
-## Why this differs from the first test artifact
+## Firmware behaviour
 
-The first ESP32-S3 artifact proved that the debugger C API builds and links on
-Xtensa/ESP-IDF, but its proposed transport was a conservative UART fallback.
-The actual Studio target is the same user experience as Pico: two logical COM
-ports over one USB cable.
+The debugger bootstrap is frozen into the test firmware.
 
-MicroPython's ESP32-S3 port at the pinned revision enables native USB device and
-runtime `machine.USBDevice` support. The test `boot.py` creates a second
-`CDCInterface` and calls:
+The build keeps the stock ESP32 frozen `_boot.py` and appends:
 
 ```python
-usb.device.get().init(dbg_cdc, builtin_driver=True)
+import mpy_studio_boot
 ```
 
-`builtin_driver=True` preserves the built-in REPL CDC while adding the
-debugger CDC to the same composite USB device.
+The frozen `mpy_studio_boot` module:
 
-## Files to place on the ESP32-S3 filesystem
+1. creates a second `CDCInterface`,
+2. calls `usb.device.get().init(..., builtin_driver=True)`,
+3. keeps the built-in CDC REPL,
+4. binds CDC1 to `dbgref.cdc`,
+5. starts the frozen Studio `trace_pump`.
 
-- `boot.py` from this test package
-- current Studio `trace_pump.py`
-- `dbgref.py`
+The `usb-device` and `usb-device-cdc` MicroPython-lib packages are frozen
+into the image through the ESP32 manifest.
 
-The `usb.device.cdc` helper package must also be available on the board (same
-runtime USB helper used by the Pico dual-CDC debugger setup).
+## Expected result after flashing
 
-Reset the board after installing these files. Windows should enumerate two COM
-ports from the single ESP32-S3 USB cable.
+Flash only the combined test image, reset the board, and reconnect the same USB
+cable.
+
+Windows should enumerate two serial ports:
+
+- one port for the normal MicroPython REPL,
+- one port for the debugger.
+
+No manual `boot.py`, package installation, or second cable is required.
 
 ## First validation
 
-Normal REPL:
+On the normal REPL:
 
 ```python
 import dbg
 print(hasattr(dbg, "set_bp"))
 print(hasattr(dbg, "clear_bp"))
 print(hasattr(dbg, "step"))
+print(hasattr(dbg, "step_in"))
+print(hasattr(dbg, "step_out"))
+print(hasattr(dbg, "locals"))
+print(hasattr(dbg, "call_stack"))
 print(hasattr(dbg, "rta_on"))
 print(hasattr(dbg, "rta_off"))
 ```
 
 All should be `True`.
 
-Then confirm Windows shows two COM ports. Keep the normal REPL on CDC0 and use
-CDC1 with MicroPython Studio → Start Debug → Connect only.
+Then use MicroPython Studio → Start Debug → Connect only and select the other
+CDC COM port.
 
-## Deliberately disabled for first ESP32-S3 hardware validation
+## Deliberately deferred
 
-The RP2 Task Map implementation reads internal asyncio object fields using
-RP2040/RP2350-specific memory offsets. The ESP32-S3 boot shim replaces that
-function with an explicit unsupported result rather than guessing Xtensa object
-layout.
+The RP2 Task Map implementation uses RP2040/RP2350-specific object memory
+offsets. That path is disabled on ESP32-S3 until a port-specific implementation
+is hardware-verified.
 
-Breakpoints, stepping, locals, call stack and RTA use the common debugger API
-and remain enabled.
+Breakpoints, stepping, locals, call stack and RTA continue to use the common
+debugger API.
