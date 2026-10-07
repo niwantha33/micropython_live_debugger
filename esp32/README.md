@@ -1,5 +1,7 @@
 # ESP32-S3 single-USB debugger test
 
+For the simple hardware-test procedure, follow [BEGINNER_TEST_GUIDE.md](BEGINNER_TEST_GUIDE.md) one step at a time.
+
 This port uses **one physical native USB connector** and exposes two logical
 CDC serial interfaces through the same ESP32-S3 TinyUSB device:
 
