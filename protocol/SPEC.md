@@ -28,6 +28,8 @@ Every frame:
 | 0x01 | trace     | `ip_lo ip_hi op`  (3B)              |
 | 0x02 | bp_hit    | `ip_lo ip_hi`     (2B)              |
 | 0x03 | reply     | ASCII text (response to query cmd)  |
+| 0x05 | rta_enter | `fun_ptr:u32 ts_us:u32` (8B, LE)   |
+| 0x06 | rta_exit  | `fun_ptr:u32 ts_us:u32` (8B, LE)   |
 
 `bp_hit` is also used for step pauses — semantically "VM paused at ip".
 
@@ -40,6 +42,8 @@ Every frame:
 | 0x12 | get_locals      | —       |
 | 0x13 | step_in         | —       |
 | 0x14 | step_out        | —       |
+| 0x1B | rta_on          | —       |
+| 0x1C | rta_off         | —       |
 
 Commands currently have 0-length payload. `get_locals` returns a 0x03 reply
 frame with `repr()`-formatted locals + frame_info.
@@ -49,6 +53,7 @@ frame with `repr()`-formatted locals + frame_info.
 Exposed by the custom firmware:
 
 - `dbg.trace_on() / trace_off()`
+- `dbg.rta_on() / rta_off()` — enable/disable execution-segment RTA events
 - `dbg.trace_func(fn)` — scope trace to one function (pass `None` to clear)
 - `dbg.target_info()` — fun_bc + bytecode pointers of current trace target
 - `dbg.mute() / unmute()` — suppress trace (used by host pump to avoid self-trace)
@@ -86,6 +91,21 @@ board boot
    │
    ▼ VM busy-wait exits, execution resumes
 ```
+
+## RTA event semantics
+
+RTA timestamps use `mp_hal_ticks_us()` and are transmitted as unsigned 32-bit
+microseconds. They wrap naturally at 2^32 microseconds; the host must calculate
+differences modulo 2^32.
+
+RTA ENTER/EXIT events describe **observed VM execution segments**. When the VM
+moves to a different MicroPython `code_state`, firmware closes the previous
+segment and opens the next one at the same timestamp. This lets the host compute
+exclusive observed runtime without double-counting nested Python execution.
+
+The debugger pump function is excluded. Native blocking/idle time and explicit
+scheduler state are not independently reported yet, so RTA runtime share is not
+the same thing as exact scheduler CPU utilisation.
 
 ## Design notes
 
