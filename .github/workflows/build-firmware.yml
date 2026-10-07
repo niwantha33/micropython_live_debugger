@@ -70,15 +70,31 @@ jobs:
           make BOARD=${{ matrix.board }} submodules
           make BOARD=${{ matrix.board }} -j4
 
+      - name: Verify debugger capabilities in compiled UF2
+        run: |
+          UF2="$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2"
+          test -s "$UF2"
+          strings -a "$UF2" | grep -Fxq 'rta_on'  || { echo "ERROR: compiled UF2 is missing dbg.rta_on"; exit 1; }
+          strings -a "$UF2" | grep -Fxq 'rta_off' || { echo "ERROR: compiled UF2 is missing dbg.rta_off"; exit 1; }
+          echo "Verified RTA firmware exports for ${{ matrix.board }}"
+
       - name: Stage firmware artifact
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: |
           mkdir -p "out/${{ matrix.folder }}"
-          cp "$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2"              "out/${{ matrix.folder }}/${{ matrix.asset }}"
+          UF2="out/${{ matrix.folder }}/${{ matrix.asset }}"
+          cp "$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2" "$UF2"
+          SHA256="$(sha256sum "$UF2" | awk '{print $1}')"
           {
-            echo "source_commit: ${GITHUB_SHA}"
-            echo "source_branch: ${GITHUB_REF_NAME}"
+            echo "source_commit: ${SOURCE_SHA}"
+            echo "source_branch: ${SOURCE_BRANCH}"
+            echo "workflow_commit: ${GITHUB_SHA}"
             echo "board: ${{ matrix.board }}"
             echo "built_at: $(date -u +%FT%TZ)"
+            echo "sha256: ${SHA256}"
+            echo "rta_api: dbg.rta_on,dbg.rta_off"
           } > "out/${{ matrix.folder }}/VERSION.txt"
 
       - name: Upload test firmware
