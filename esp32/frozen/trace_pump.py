@@ -66,8 +66,11 @@ def _pump():
         # Bound each drain pass so continuous RTA traffic cannot starve
         # inbound debugger commands such as RTA OFF.
         chunks = 0
-        while chunks < 8:
-            data = dbg.read_trace(256)
+        # ESP32-S3 TinyUSB CDC uses a Python-side buffering layer. Keep each
+        # drain burst short so USB callbacks and the FreeRTOS idle/tick work
+        # get regular CPU time while RTA is producing events.
+        while chunks < 2:
+            data = dbg.read_trace(128)
             if not data:
                 break
             chunks += 1
