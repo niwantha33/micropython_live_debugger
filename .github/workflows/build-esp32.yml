@@ -43,9 +43,15 @@ jobs:
       - name: Install frozen dual-CDC debugger modules
         run: |
           BOARD_DIR="$GITHUB_WORKSPACE/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
+          STOCK_BOOT="$GITHUB_WORKSPACE/micropython/ports/esp32/modules/_boot.py"
           rm -rf "$BOARD_DIR/debugger_frozen"
           cp -R esp32/frozen "$BOARD_DIR/debugger_frozen"
           cp esp32/manifest.py "$BOARD_DIR/manifest_debugger.py"
+          {
+            echo
+            echo "# MicroPython Studio debugger bootstrap"
+            echo "import mpy_studio_boot"
+          } >> "$STOCK_BOOT"
 
       - name: Build MicroPython for ESP32-S3
         uses: espressif/esp-idf-ci-action@v1
@@ -79,9 +85,6 @@ jobs:
           cp "$BUILD/bootloader/bootloader.bin" "$OUT/bootloader.bin"
           cp "$BUILD/partition_table/partition-table.bin" "$OUT/partition-table.bin"
           cp "$BUILD/micropython.bin" "$OUT/micropython.bin"
-          cp esp32/boot.py "$OUT/boot.py"
-          cp esp32/dbgref.py "$OUT/dbgref.py"
-          cp -R esp32/lib "$OUT/lib"
           cp esp32/README.md "$OUT/TESTING.md"
           SHA256="$(sha256sum "$OUT/firmware_esp32s3.bin" | awk '{print $1}')"
           {
