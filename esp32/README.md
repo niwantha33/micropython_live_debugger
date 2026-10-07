@@ -1,75 +1,85 @@
-# ESP32-S3 single-USB debugger test
+# ESP32-S3 debugger hardware-test layout
 
-For the simple hardware-test procedure, follow [BEGINNER_TEST_GUIDE.md](BEGINNER_TEST_GUIDE.md) one step at a time.
+For the current hardware-validation phase use the two ESP32-S3 USB interfaces
+for separate jobs:
 
-This port uses **one physical native USB connector** and exposes two logical
-CDC serial interfaces through the same ESP32-S3 TinyUSB device:
-
-- CDC0 — normal MicroPython REPL
-- CDC1 — MicroPython Studio debugger / breakpoints / RTA
-
-No external USB-UART adapter is required.
-
-## Firmware behaviour
-
-The debugger bootstrap is frozen into the test firmware.
-
-The build keeps the stock ESP32 frozen `_boot.py` and appends:
-
-```python
-import mpy_studio_boot
+```text
+USB-Serial/JTAG connector  -> MicroPython REPL + file upload
+Native USB connector       -> MicroPython Studio debugger + RTA
 ```
 
-The frozen `mpy_studio_boot` module:
+This is intentional for the current test. Do not use the native debugger COM
+port for MIP, raw REPL, or project file upload.
 
-1. creates a second `CDCInterface`,
-2. calls `usb.device.get().init(..., builtin_driver=True)`,
-3. keeps the built-in CDC REPL,
-4. binds CDC1 to `dbgref.cdc`,
-5. starts the frozen Studio `trace_pump`.
+## Why
 
-The `usb-device` and `usb-device-cdc` MicroPython-lib packages are frozen
-into the image through the ESP32 manifest.
+Hardware testing proved that the USB-Serial/JTAG path is reliable for the
+MicroPython REPL and file transfer, while the native USB debugger CDC is already
+working for breakpoint set/clear/continue and RTA control.
 
-## Expected result after flashing
+Keeping those paths separate also reduces USB traffic while the ESP32-specific
+RTA watchdog issue is validated.
 
-Flash only the combined test image, reset the board, and reconnect the same USB
-cable.
+## Boot sequence
 
-Windows should enumerate two serial ports:
+The debugger code is frozen into the firmware.
 
-- one port for the normal MicroPython REPL,
-- one port for the debugger.
+Before TinyUSB starts, `mpy_studio_boot` creates one native CDC interface for
+the debugger. The normal REPL remains on USB-Serial/JTAG.
 
-No manual `boot.py`, package installation, or second cable is required.
+After `mp_usbd_init()`, `mpy_studio_start.py` starts the frozen
+`trace_pump` thread.
 
-## First validation
+This two-phase startup avoids starting the debugger thread while USB is still
+being initialised.
 
-On the normal REPL:
+## What to connect
 
-```python
-import dbg
-print(hasattr(dbg, "set_bp"))
-print(hasattr(dbg, "clear_bp"))
-print(hasattr(dbg, "step"))
-print(hasattr(dbg, "step_in"))
-print(hasattr(dbg, "step_out"))
-print(hasattr(dbg, "locals"))
-print(hasattr(dbg, "call_stack"))
-print(hasattr(dbg, "rta_on"))
-print(hasattr(dbg, "rta_off"))
-```
+Connect both board USB connectors during the current test:
 
-All should be `True`.
+1. **Serial/JTAG USB** — use this in MicroPython Studio as the project/device
+   port for upload and Shell.
+2. **Native USB** — select this only from **Start Debug -> Connect only**.
 
-Then use MicroPython Studio → Start Debug → Connect only and select the other
-CDC COM port.
+Windows COM numbers can change. Identify the Serial/JTAG port by the normal
+MicroPython `>>>` prompt.
 
-## Deliberately deferred
+## Do not install usb-device-cdc
 
-The RP2 Task Map implementation uses RP2040/RP2350-specific object memory
-offsets. That path is disabled on ESP32-S3 until a port-specific implementation
-is hardware-verified.
+The required `usb-device` and `usb-device-cdc` packages are frozen into the
+test firmware.
 
-Breakpoints, stepping, locals, call stack and RTA continue to use the common
-debugger API.
+Do not run MIP installation for `usb-device-cdc` on either port.
+
+## First debugger test
+
+Use a small program and test in this order:
+
+1. upload through Serial/JTAG,
+2. run the program,
+3. Connect only to the native debugger COM,
+4. set one breakpoint,
+5. hit the breakpoint,
+6. inspect locals,
+7. continue,
+8. remove the breakpoint.
+
+Only then test RTA.
+
+## RTA test
+
+The ESP32 test firmware uses bounded native-CDC buffering and shorter pump
+bursts to avoid long IRQ-off buffer compaction under RTA traffic.
+
+Start with a 30-second test:
+
+1. RTA On,
+2. let the program run,
+3. do not press Refresh Names repeatedly,
+4. RTA Off,
+5. confirm there is no watchdog reset.
+
+## Task Map
+
+The RP2 Task Map implementation uses RP2040/RP2350-specific memory offsets.
+It remains disabled on ESP32-S3 until a separate implementation is validated.
