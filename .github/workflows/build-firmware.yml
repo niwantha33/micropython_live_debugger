@@ -1,61 +1,115 @@
-name: Build firmware and publish to firmware repo
+name: Build debugger firmware
 
 on:
   push:
     paths:
       - 'firmware/patches/**'
       - '.github/workflows/build-firmware.yml'
-  workflow_dispatch:  # allows manual run from Actions tab
+  pull_request:
+    paths:
+      - 'firmware/patches/**'
+      - '.github/workflows/build-firmware.yml'
+  workflow_dispatch:
 
 jobs:
-  build-pico2w:
+  build-rp2:
+    name: Build ${{ matrix.label }}
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: pico
+            label: Raspberry Pi Pico
+            board: RPI_PICO
+            folder: Pico
+            asset: firmware_pico.uf2
+          - id: picow
+            label: Raspberry Pi Pico W
+            board: RPI_PICO_W
+            folder: Picow
+            asset: firmware_pico_w.uf2
+          - id: pico2
+            label: Raspberry Pi Pico 2
+            board: RPI_PICO2
+            folder: Pico2
+            asset: firmware_pico2.uf2
+          - id: pico2w
+            label: Raspberry Pi Pico 2 W
+            board: RPI_PICO2_W
+            folder: Pico2w
+            asset: firmware_pico2_w.uf2
+
     steps:
       - name: Checkout source repo
         uses: actions/checkout@v4
 
-      - name: Install ARM toolchain + build deps
+      - name: Install ARM toolchain and build dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi cmake build-essential python3 git
 
       - name: Clone MicroPython
         run: |
-          git clone --recursive https://github.com/micropython/micropython.git $HOME/micropython
-          cd $HOME/micropython && make -C mpy-cross
+          git clone --recursive https://github.com/micropython/micropython.git "$HOME/micropython"
+          make -C "$HOME/micropython/mpy-cross"
 
-      - name: Apply patches
-        env:
-          MPY_DIR: ${{ env.HOME }}/micropython
+      - name: Apply debugger patches
         run: |
-          export MPY_DIR=$HOME/micropython
+          export MPY_DIR="$HOME/micropython"
           for p in firmware/patches/0*.sh; do
             echo ">> $p"
             bash "$p"
           done
 
-      - name: Build firmware (RPI_PICO2_W)
+      - name: Build firmware
         run: |
-          cd $HOME/micropython/ports/rp2
-          make BOARD=RPI_PICO2_W submodules
-          make BOARD=RPI_PICO2_W -j4
+          cd "$HOME/micropython/ports/rp2"
+          make BOARD=${{ matrix.board }} submodules
+          make BOARD=${{ matrix.board }} -j4
 
-      - name: Push UF2 to firmware repo
+      - name: Stage firmware artifact
+        run: |
+          mkdir -p "out/${{ matrix.folder }}"
+          cp "$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2"              "out/${{ matrix.folder }}/${{ matrix.asset }}"
+          {
+            echo "source_commit: ${GITHUB_SHA}"
+            echo "source_branch: ${GITHUB_REF_NAME}"
+            echo "board: ${{ matrix.board }}"
+            echo "built_at: $(date -u +%FT%TZ)"
+          } > "out/${{ matrix.folder }}/VERSION.txt"
+
+      - name: Upload test firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-firmware-${{ matrix.id }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish firmware
+    needs: build-rp2
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+
+    steps:
+      - name: Download built firmware
+        uses: actions/download-artifact@v4
+        with:
+          pattern: debug-firmware-*
+          path: staged
+          merge-multiple: true
+
+      - name: Publish to Studio firmware repository
         env:
           TOKEN: ${{ secrets.FIRMWARE_REPO_TOKEN }}
         run: |
-          UF2=$HOME/micropython/ports/rp2/build-RPI_PICO2_W/firmware.uf2
-          test -f "$UF2"
           git config --global user.email "bot@niwantha33.local"
           git config --global user.name "firmware-bot"
-          git clone https://x-access-token:${TOKEN}@github.com/niwantha33/micropython_firmware.git out
-          mkdir -p out/Pico2w
-          cp "$UF2" out/Pico2w/firmware.uf2
-          {
-            echo "source_commit: ${GITHUB_SHA}"
-            echo "built_at: $(date -u +%FT%TZ)"
-          } > out/Pico2w/VERSION.txt
-          cd out
-          git add Pico2w/
-          git commit -m "auto: Pico2w firmware from ${GITHUB_SHA::7}" || echo "no changes"
+          git clone "https://x-access-token:${TOKEN}@github.com/niwantha33/micropython_live_dbg_firmware.git" firmware-repo
+          cp -R staged/* firmware-repo/
+          cd firmware-repo
+          git add Pico/ Picow/ Pico2/ Pico2w/
+          git commit -m "auto: debugger firmware from ${GITHUB_SHA::7}" || echo "no changes"
           git push
