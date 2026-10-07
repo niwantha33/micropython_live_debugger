@@ -2,6 +2,8 @@ name: Build debugger firmware
 
 on:
   push:
+    branches:
+      - main
     paths:
       - 'firmware/patches/**'
       - '.github/workflows/build-firmware.yml'
