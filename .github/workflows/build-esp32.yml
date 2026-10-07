@@ -48,14 +48,39 @@ jobs:
         run: |
           BOARD_DIR="$GITHUB_WORKSPACE/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
           STOCK_BOOT="$GITHUB_WORKSPACE/micropython/ports/esp32/modules/_boot.py"
+          MAIN_C="$GITHUB_WORKSPACE/micropython/ports/esp32/main.c"
           rm -rf "$BOARD_DIR/debugger_frozen"
           cp -R esp32/frozen "$BOARD_DIR/debugger_frozen"
           cp esp32/manifest.py "$BOARD_DIR/manifest_debugger.py"
+
+          # Phase 1: descriptor setup before mp_usbd_init().
           {
             echo
-            echo "# MicroPython Studio debugger bootstrap"
+            echo "# MicroPython Studio USB descriptor bootstrap"
             echo "import mpy_studio_boot"
           } >> "$STOCK_BOOT"
+
+          # Phase 2: start the debugger thread only after TinyUSB is fully
+          # initialised. This preserves CDC0 raw REPL/file upload stability.
+          python - "$MAIN_C" <<'PY'
+          import sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          text = p.read_text()
+          old = """    #if MICROPY_HW_ENABLE_USBDEV
+              mp_usbd_init();
+              #endif
+          """
+          new = """    #if MICROPY_HW_ENABLE_USBDEV
+              mp_usbd_init();
+              pyexec_frozen_module("mpy_studio_start.py", false);
+              #endif
+          """
+          if text.count(old) != 1:
+              raise SystemExit("expected exactly one ESP32 mp_usbd_init startup block")
+          p.write_text(text.replace(old, new, 1))
+          PY
 
       - name: Build MicroPython for ESP32-S3
         uses: espressif/esp-idf-ci-action@v1
@@ -74,6 +99,7 @@ jobs:
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'set_bp' || { echo "ERROR: missing dbg.set_bp"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'clear_bp' || { echo "ERROR: missing dbg.clear_bp"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fq 'MicroPython Studio ESP32-S3' || { echo "ERROR: missing frozen dual-CDC bootstrap"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fq 'mpy_studio_start.py' || { echo "ERROR: missing late debugger-start hook"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fq 'usb-device-cdc' || true
 
       - name: Stage ESP32-S3 test firmware
@@ -97,7 +123,7 @@ jobs:
             echo "micropython_commit: $MICROPYTHON_REF"
             echo "esp_idf: v5.5.5"
             echo "board: ESP32_GENERIC_S3"
-            echo "transport: native-usb-dual-cdc-frozen"
+            echo "transport: native-usb-dual-cdc-two-phase"
             echo "usb_layout: CDC0=REPL,CDC1=debugger"
             echo "studio_trace_pump_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
             echo "built_at: $(date -u +%FT%TZ)"
