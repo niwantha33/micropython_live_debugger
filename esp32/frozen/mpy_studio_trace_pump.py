@@ -27,6 +27,33 @@ cmds = 0
 continues = 0
 
 
+def _write_all(cdc, data, max_retries=40):
+    """Best-effort complete write for the small ESP32 native-USB CDC buffer."""
+    written = 0
+    retries = 0
+    while written < len(data) and _running:
+        try:
+            if not (cdc.is_open() and cdc.dtr):
+                break
+            n = cdc.write(data[written:])
+            if n:
+                written += n
+                retries = 0
+            else:
+                retries += 1
+                if retries >= max_retries:
+                    break
+                time.sleep_ms(1)
+        except OSError:
+            retries += 1
+            if retries >= max_retries:
+                break
+            time.sleep_ms(1)
+        except Exception:
+            break
+    return written
+
+
 def _pump():
     global _running, bytes_in, cmds, continues
     import mpy_studio_dbgref as dbgref
@@ -173,7 +200,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x16:
@@ -187,7 +214,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x1D:
@@ -210,7 +237,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x1E:
@@ -223,7 +250,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x1F:
@@ -235,7 +262,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x17:
@@ -248,7 +275,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x12:
@@ -283,7 +310,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x18:
@@ -333,7 +360,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x19:
@@ -377,7 +404,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x1A:
@@ -424,7 +451,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x22:
@@ -438,7 +465,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x21:
@@ -450,7 +477,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x20:
@@ -462,7 +489,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x1B:
@@ -477,7 +504,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             elif cmd_type == 0x1C:
@@ -492,7 +519,7 @@ def _pump():
                 payload = text.encode()[:250]
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
                 try:
-                    cdc.write(frame)
+                    _write_all(cdc, frame)
                 except Exception:
                     pass
             cmd_buf[:] = cmd_buf[total:]
