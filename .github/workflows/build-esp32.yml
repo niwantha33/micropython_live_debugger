@@ -9,6 +9,10 @@ on:
       - 'esp32/**'
   workflow_dispatch:
 
+concurrency:
+  group: esp32-s3-debugger-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build-esp32s3:
     name: Build ESP32-S3 debugger
