@@ -26,7 +26,10 @@ def configure_usb():
     import usb.device
     from usb.device.cdc import CDCInterface
 
-    dbg_cdc = CDCInterface(timeout=0, txbuf=4096, rxbuf=512)
+    # Keep the Python CDC buffers small on ESP32-S3. usb-device's Buffer
+    # implementation briefly disables IRQs while compacting data; very large
+    # buffers can turn that into an interrupt-watchdog problem under RTA load.
+    dbg_cdc = CDCInterface(timeout=0, txbuf=256, rxbuf=256)
 
     # Preserve the built-in TinyUSB CDC0 (MicroPython stdio) and append CDC1.
     # This must happen before mp_usbd_init().
