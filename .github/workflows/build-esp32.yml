@@ -40,13 +40,20 @@ jobs:
             bash "$p"
           done
 
+      - name: Install frozen dual-CDC debugger modules
+        run: |
+          BOARD_DIR="$GITHUB_WORKSPACE/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
+          rm -rf "$BOARD_DIR/debugger_frozen"
+          cp -R esp32/frozen "$BOARD_DIR/debugger_frozen"
+          cp esp32/manifest.py "$BOARD_DIR/manifest_debugger.py"
+
       - name: Build MicroPython for ESP32-S3
         uses: espressif/esp-idf-ci-action@v1
         with:
           esp_idf_version: v5.5.5
           target: esp32s3
           path: micropython/ports/esp32
-          command: make BOARD=ESP32_GENERIC_S3 submodules && make BOARD=ESP32_GENERIC_S3 -j4
+          command: make BOARD=ESP32_GENERIC_S3 FROZEN_MANIFEST=boards/ESP32_GENERIC_S3/manifest_debugger.py submodules && make BOARD=ESP32_GENERIC_S3 FROZEN_MANIFEST=boards/ESP32_GENERIC_S3/manifest_debugger.py -j4
 
       - name: Verify debugger API in ESP32-S3 image
         run: |
@@ -56,6 +63,8 @@ jobs:
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'rta_off' || { echo "ERROR: missing dbg.rta_off"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'set_bp' || { echo "ERROR: missing dbg.set_bp"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'clear_bp' || { echo "ERROR: missing dbg.clear_bp"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fq 'MicroPython Studio ESP32-S3' || { echo "ERROR: missing frozen dual-CDC bootstrap"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fq 'usb-device-cdc' || true
 
       - name: Stage ESP32-S3 test firmware
         env:
@@ -81,7 +90,9 @@ jobs:
             echo "micropython_commit: $MICROPYTHON_REF"
             echo "esp_idf: v5.5.5"
             echo "board: ESP32_GENERIC_S3"
-            echo "transport: native-usb-dual-cdc"
+            echo "transport: native-usb-dual-cdc-frozen"
+            echo "usb_layout: CDC0=REPL,CDC1=debugger"
+            echo "studio_trace_pump_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
             echo "built_at: $(date -u +%FT%TZ)"
             echo "sha256: $SHA256"
             echo "debug_api: set_bp,clear_bp,step,step_in,step_out,locals,call_stack"
