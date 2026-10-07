@@ -92,6 +92,13 @@ board boot
    ▼ VM busy-wait exits, execution resumes
 ```
 
+## Breakpoint hit identity
+
+Current firmware includes the paused function pointer in each `bp_hit` event so
+the host can distinguish two functions that use the same relative bytecode
+offset. Hosts must continue accepting the legacy 2-byte `ip_off` payload for
+older installed debug firmware.
+
 ## RTA event semantics
 
 RTA timestamps use `mp_hal_ticks_us()` and are transmitted as unsigned 32-bit
