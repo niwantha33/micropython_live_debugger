@@ -72,6 +72,7 @@ jobs:
           cp "$BUILD/micropython.bin" "$OUT/micropython.bin"
           cp esp32/boot.py "$OUT/boot.py"
           cp esp32/dbgref.py "$OUT/dbgref.py"
+          cp -R esp32/lib "$OUT/lib"
           cp esp32/README.md "$OUT/TESTING.md"
           SHA256="$(sha256sum "$OUT/firmware_esp32s3.bin" | awk '{print $1}')"
           {
