@@ -3,9 +3,9 @@
 # Runs from the stock frozen _boot.py BEFORE mp_usbd_init().
 # IMPORTANT: do not start threads here.
 #
-# One native USB cable:
-#   CDC0: built-in MicroPython REPL / raw REPL / file upload
-#   CDC1: MicroPython Studio debugger / RTA
+# ESP32-S3 test wiring:
+#   USB-Serial/JTAG connector: MicroPython REPL / raw REPL / file upload
+#   Native USB connector:     MicroPython Studio debugger / RTA
 
 import sys
 
@@ -31,12 +31,13 @@ def configure_usb():
     # buffers can turn that into an interrupt-watchdog problem under RTA load.
     dbg_cdc = CDCInterface(timeout=0, txbuf=256, rxbuf=256)
 
-    # Preserve the built-in TinyUSB CDC0 (MicroPython stdio) and append CDC1.
-    # This must happen before mp_usbd_init().
+    # The reliable ESP32-S3 REPL/upload path is the separate USB-Serial/JTAG
+    # interface. Keep native TinyUSB dedicated to the debugger during hardware
+    # validation instead of creating an unused second native CDC.
     usb.device.get().init(
         dbg_cdc,
-        builtin_driver=True,
-        product_str="MicroPython Studio ESP32-S3",
+        builtin_driver=False,
+        product_str="MicroPython Studio ESP32-S3 Debug",
     )
 
     import dbgref
