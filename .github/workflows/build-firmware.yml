@@ -1,5 +1,10 @@
 name: Build debugger firmware
 
+env:
+  # Pinned for reproducible debugger UF2s. This is the upstream revision used
+  # by the hardware-test RTA artifact verified on 2026-10-07.
+  MICROPYTHON_REF: a129b2fba1a3348088c94d0462eef16d20874dea
+
 on:
   push:
     branches:
@@ -51,10 +56,13 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y gcc-arm-none-eabi cmake build-essential python3 git
 
-      - name: Clone MicroPython
+      - name: Clone pinned MicroPython
         run: |
-          git clone --recursive https://github.com/micropython/micropython.git "$HOME/micropython"
-          make -C "$HOME/micropython/mpy-cross"
+          git clone https://github.com/micropython/micropython.git "$HOME/micropython"
+          cd "$HOME/micropython"
+          git checkout --detach "$MICROPYTHON_REF"
+          git submodule update --init --recursive
+          make -C mpy-cross
 
       - name: Apply debugger patches
         run: |
@@ -91,6 +99,7 @@ jobs:
             echo "source_commit: ${SOURCE_SHA}"
             echo "source_branch: ${SOURCE_BRANCH}"
             echo "workflow_commit: ${GITHUB_SHA}"
+            echo "micropython_commit: ${MICROPYTHON_REF}"
             echo "board: ${{ matrix.board }}"
             echo "built_at: $(date -u +%FT%TZ)"
             echo "sha256: ${SHA256}"
