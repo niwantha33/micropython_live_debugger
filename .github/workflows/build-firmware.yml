@@ -78,6 +78,11 @@ jobs:
           done
 
 
+      - name: Test frozen Pico bootstrap without hardware
+        run: |
+          python3 -m unittest discover -s rp2/tests -p 'test_*.py' -v
+          python3 -m py_compile rp2/frozen/*.py
+
       - name: Install frozen Pico debugger (test candidate only)
         env:
           BOARD: ${{ matrix.board }}
