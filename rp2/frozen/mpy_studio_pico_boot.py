@@ -24,12 +24,6 @@ def configure_usb():
     sys.modules["dbgref"] = dbgref
 
 
-def start_pump():
-    import mpy_studio_pico_trace_pump as trace_pump
-    # Resolve Studio's symbol-lookup import to the exact frozen pump.
-    sys.modules["trace_pump"] = trace_pump
-    trace_pump.start()
-
 
 try:
     configure_usb()
