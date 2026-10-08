@@ -51,12 +51,13 @@ class FrozenPicoBootstrapTests(unittest.TestCase):
             self.assertIsNotNone(dbgref.cdc)
             self.assertIs(sys.modules["dbgref"], dbgref)
             self.assertNotIn("start_pump", events)
-            # The first boot phase must not start a thread until USB is ready.
-            boot = types.ModuleType("mpy_studio_pico_boot")
-            boot.start_pump = ns["start_pump"]
-            sys.modules["mpy_studio_pico_boot"] = boot
+            # Late startup must use the existing reference, without importing
+            # and re-executing the early descriptor bootstrap.
+            self.assertNotIn("mpy_studio_pico_boot", sys.modules)
             runpy.run_path(str(FROZEN / "mpy_studio_pico_start.py"))
             self.assertEqual(events[-1], "start_pump")
+            self.assertEqual(sum(1 for e in events if isinstance(e, tuple) and e[0] == "init"), 1)
+            self.assertNotIn("mpy_studio_pico_boot", sys.modules)
             self.assertIs(sys.modules["trace_pump"], pump)
 
         # Undo the test-only aliases that may have been present beforehand.
