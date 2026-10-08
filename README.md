@@ -15,7 +15,7 @@ No JTAG. No `sys.settrace`. No print-debugging.
 - **Call stack** with function names, click a frame to jump to source
 - **Conditional breakpoints** — `b > 1`, supports Python `and / or / not`
 - **Live line highlight** of the paused line
-- **Auto-upload** of debugger files via "Start Debug" button
+- **Stable/legacy Pico**: debugger file upload is supported by existing released UF2 firmware. **New frozen Pico candidate**: no debugger-file upload after the UF2 is flashed.
 - **Robust port handling** — friendly errors when COM port is busy
 - **Two USB CDCs** — debugger frames on CDC1, REPL stays untouched on CDC0
 
@@ -23,7 +23,7 @@ No JTAG. No `sys.settrace`. No print-debugging.
 
 **Raspberry Pi Pico 2 W (RP2350).** Dual USB-CDC built in.
 
-ESP32-S3 port planned for v0.2.
+ESP32-S3 validation is isolated on `feature/esp32-s3-debugger-v1` (PR #4), not merged or published.
 
 ## Quick start
 
@@ -175,3 +175,31 @@ So improvements can be folded back upstream.
 ## Credits
 
 Built on MicroPython by Damien George and contributors.
+
+
+## New frozen Pico firmware candidate (not released)
+
+The new self-contained firmware is developed **separately from the working Pico
+UF2** on branch [`feature/pico-frozen-debugger-v1`](https://github.com/niwantha33/micropython_live_debugger/tree/feature/pico-frozen-debugger-v1).
+Read [Pico frozen debugger test guide](rp2/README.md) before flashing any CI artifact.
+
+Its two USB CDC ports share **one Pico USB cable**:
+CDC0 = REPL/project upload, CDC1 = debugger/RTA. The trace pump and USB helpers
+are frozen, so with the candidate firmware the normal flow is:
+
+1. Flash the correct Pico-family `.uf2` **once** (after hardware validation).
+2. Connect the normal USB cable, identify the REPL COM (CDC0).
+3. In Studio select **Start Debug → Connect only** and the distinct debugger COM (CDC1).
+4. Set a breakpoint, run code, inspect locals, Continue, then try RTA.
+
+Do **not** upload `boot.py`, `trace_pump.py`, or `dbgref.py` after flashing
+the new frozen UF2. The old UF2 may still require Studio's explicit legacy
+setup. Never overwrite an unrelated user `boot.py`; a previously uploaded
+Studio boot script may need a one-time safe rename to avoid USB conflicts.
+
+**RTA accuracy:** Observed VM% is an exclusive elapsed-segment time share,
+not FreeRTOS CPU use. Inclusive `Total`, execution sleep/wait, and unresolved
+function identifiers such as `0x3fcb4310` must not be presented as CPU load.
+
+**Release gate:** CI build, real board tests (including 30-second RTA and USB
+recovery), then explicit review. No auto-publication to the firmware-binaries repo.
