@@ -5,6 +5,41 @@ image has been built, flashed, validated or published by this work.** This is a
 separate exploratory branch. Do not alter stable Pico firmware or the
 hardware-tested ESP32-S3 branch.
 
+## User board photographed — 8 October 2026
+
+The provided photograph visually matches the commonly sold **dual USB-C
+ESP32-C3-MINI-1 DevKit** with two connectors at the bottom, a BOOT button,
+RST button, RGB LED, USB-UART bridge IC and TX/RX status LEDs.
+
+A matching annotated board listing identifies the connectors as:
+
+- **Left USB-C (looking at the front, antenna at top):** ESP32-C3's
+  integrated USB Serial/JTAG interface, using fixed-function CDC.
+- **Right USB-C:** separate **CH340-family USB-UART bridge**.
+
+Photo match reference (not a guaranteed schematic for this exact board):
+https://nl.bestdealplus.com/product/47949195/Dual-Type-C-ESP32-C3-DevKitC-1-ESP32-C3-Wifi-Bluetooth-Compatibel-5-0-Mesh-Development-Board-Esp32-Draadloze-Module-Voor-Arduino
+
+This materially improves feasibility. Unlike a single-USB C3 board, the
+two connectors could provide **two independent serial transports without
+adding wiring**: CH340 UART for MicroPython REPL/project upload, and native
+USB Serial/JTAG CDC for debugger/RTA. The firmware may need to avoid
+console/log mixing on the native serial channel and implement a
+C3-specific transport driver; **do not try to instantiate the S3 TinyUSB
+CDCInterface on C3**.
+
+**Evidence still missing:** actual Windows enumeration and physical-port
+REPL/flash test, USB hardware IDs, board revision, and confirmation that
+both connectors are routed as on the matching seller image.
+**Do not flash or change boot.py to identify ports.**
+
+Safe inspection when the board is available: attach only the **right**
+connector first, note Windows COM and try the normal `>>>` prompt.
+Disconnect, try **left** separately and note its distinct COM and device
+description. Afterwards test both only if safe power/ground arrangement
+is established, and use one COM at a time. This is a port-mapping test,
+not debugger certification.
+
 ## Key hardware difference: ESP32-C3 is not ESP32-S3
 
 The ESP32-C3 has a **fixed-function USB Serial/JTAG controller** that exposes
@@ -25,7 +60,7 @@ the C3 has no USB OTG gadget controller for it.
 
 | Option | REPL / upload | Debugger / RTA | Preconditions |
 | --- | --- | --- | --- |
-| A: two independently exposed serial channels (preferred when available) | Existing working C3 USB Serial/JTAG or board USB-UART | Separate UART transport exposed via a second USB-UART interface | Check actual C3 board connectors, UART availability, routing, voltage and COM enumeration. Do not guess pins. |
+| A: dual onboard USB-C connectors (preferred candidate) | Right-hand CH340 USB-UART bridge (confirm REPL port) | Left-hand fixed USB Serial/JTAG CDC (C3-specific framed debug transport) | Exact photo matches a seller's dual-USB board, but confirm both physical ports and independent COMs before writing any firmware. |
 | B: Wi-Fi debugger | Existing stable REPL port | Bounded authenticated local TCP transport | Separate transport implementation, reset/reconnect behaviour, security and timing validation. |
 | C: shared serial multiplexing (last resort) | Shared COM | Framed debugger over same COM | Requires nontrivial protocol arbitration to preserve raw REPL / file upload; do not route two independent serial clients to one COM. |
 
@@ -65,7 +100,8 @@ expects an independent debugger COM, so options B/C also require host changes.
 
 - [x] Research USB controller / pinned C3 MicroPython target.
 - [x] Keep C3 investigation isolated from Pico and S3 release work.
-- [ ] Identify user's **specific** C3 board, USB connector(s), USB-UART bridge,
+- [x] Identify visually matching dual USB-C ESP32-C3-MINI-1 board from photograph.
+- [ ] Verify this actual C3 board's USB connector(s), USB-UART bridge,
       available UART and actual COM ports (hardware evidence required).
 - [ ] Select and document a separate transport preserving REPL/upload.
 - [ ] Audit RISC-V C debugger hooks and single-core breakpoint servicing.
