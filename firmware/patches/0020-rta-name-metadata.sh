@@ -3,7 +3,7 @@
 #
 # Adds a backward-compatible debug CDC frame:
 #   0xAA, 0x07, length, fun_ptr:u32, bytecode_ptr:u32,
-#   context_ptr:u32, UTF-8 simple function name (1..60 bytes).
+#   context_ptr:u32, UTF-8 simple function name (1..60 bytes), CRC16-CCITT:u16.
 # Existing 0x05/0x06 execution-segment timing frames are unchanged.
 #
 # The VM already holds a VALID mp_obj_fun_bc_t at this hook. Read the
@@ -67,11 +67,20 @@ static inline size_t rta_ring_free(void) {
     return (head >= tail) ? (DBG_RING_SIZE - (head - tail) - 1) : (tail - head - 1);
 }
 
-static inline void rta_push_u32(uint32_t v) {
-    dbg_push((uint8_t)(v & 0xFF));
-    dbg_push((uint8_t)((v >> 8) & 0xFF));
-    dbg_push((uint8_t)((v >> 16) & 0xFF));
-    dbg_push((uint8_t)((v >> 24) & 0xFF));
+static inline uint16_t rta_crc16_byte(uint16_t crc, uint8_t b) {
+    crc ^= (uint16_t)b << 8;
+    for (int bit = 0; bit < 8; ++bit) {
+        crc = (crc & 0x8000) ? (uint16_t)((crc << 1) ^ 0x1021) : (uint16_t)(crc << 1);
+    }
+    return crc;
+}
+
+static inline void rta_push_u32(uint32_t v, uint16_t *crc) {
+    for (int i = 0; i < 4; ++i) {
+        uint8_t b = (uint8_t)(v >> (i * 8));
+        dbg_push(b);
+        *crc = rta_crc16_byte(*crc, b);
+    }
 }
 
 static inline void emit_rta_name(const mp_obj_fun_bc_t *fun_bc) {
@@ -99,7 +108,7 @@ static inline void emit_rta_name(const mp_obj_fun_bc_t *fun_bc) {
         }
     }
 
-    const size_t payload = 12 + len;
+    const size_t payload = 14 + len; // three u32 identity tokens + name + CRC16
     // Reserve room for this metadata and up to two subsequent 11-byte
     // RTA segment frames; naming must never crowd out timing data.
     if (rta_ring_free() < 3 + payload + 22) {
@@ -109,12 +118,17 @@ static inline void emit_rta_name(const mp_obj_fun_bc_t *fun_bc) {
     dbg_push(0xAA);
     dbg_push(0x07);
     dbg_push((uint8_t)payload);
-    rta_push_u32((uint32_t)(uintptr_t)fun_bc);
-    rta_push_u32((uint32_t)(uintptr_t)fun_bc->bytecode);
-    rta_push_u32((uint32_t)(uintptr_t)fun_bc->context);
+    uint16_t crc = 0xFFFF;
+    rta_push_u32((uint32_t)(uintptr_t)fun_bc, &crc);
+    rta_push_u32((uint32_t)(uintptr_t)fun_bc->bytecode, &crc);
+    rta_push_u32((uint32_t)(uintptr_t)fun_bc->context, &crc);
     for (size_t i = 0; i < len; ++i) {
-        dbg_push((uint8_t)text[i]);
+        uint8_t b = (uint8_t)text[i];
+        dbg_push(b);
+        crc = rta_crc16_byte(crc, b);
     }
+    dbg_push((uint8_t)(crc & 0xFF));
+    dbg_push((uint8_t)(crc >> 8));
 
     int slot;
     if (existing >= 0) {
@@ -167,6 +181,6 @@ replace_once(
 
 p.write_text(s)
 assert 'emit_rta_name(code_state->fun_bc);' in s
-assert 'rta_push_u32((uint32_t)(uintptr_t)fun_bc->bytecode);' in s
+assert 'rta_push_u32((uint32_t)(uintptr_t)fun_bc->bytecode, &crc);' in s
 print("    0020 RTA runtime name metadata applied")
 PY
