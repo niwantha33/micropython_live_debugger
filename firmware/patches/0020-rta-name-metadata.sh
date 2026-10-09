@@ -53,6 +53,7 @@ typedef struct {
 static rta_name_identity_t rta_name_seen[RTA_NAME_SLOTS];
 static uint8_t rta_name_used = 0;
 static uint8_t rta_name_next = 0;
+static uint8_t rta_names_enabled = 0;
 """
 replace_once(
     "static const void *rta_last_fun_bc = NULL;",
@@ -137,8 +138,28 @@ replace_once(
 )
 replace_once(
     "            emit_rta_segment(0x05, cur_fun_bc, now_us);",
-    "            emit_rta_name(code_state->fun_bc);\n            emit_rta_segment(0x05, cur_fun_bc, now_us);",
+    "            if (rta_names_enabled) { emit_rta_name(code_state->fun_bc); }\n            emit_rta_segment(0x05, cur_fun_bc, now_us);",
 )
+replace_once(
+    "static mp_obj_t m_rta_on(void) {",
+    """static mp_obj_t m_rta_names_on(void) {
+    rta_names_enabled = 1;
+    return mp_const_true;
+}
+static MP_DEFINE_CONST_FUN_OBJ_0(m_rta_names_on_obj, m_rta_names_on);
+
+static mp_obj_t m_rta_on(void) {""",
+)
+replace_once(
+    "    { MP_ROM_QSTR(MP_QSTR_rta_on),       MP_ROM_PTR(&m_rta_on_obj) },",
+    "    { MP_ROM_QSTR(MP_QSTR_rta_on),       MP_ROM_PTR(&m_rta_on_obj) },\n"
+    "    { MP_ROM_QSTR(MP_QSTR_rta_names_on), MP_ROM_PTR(&m_rta_names_on_obj) },",
+)
+replace_once(
+    "static mp_obj_t m_rta_off(void) {\n    mp_dbg_rta_enabled = 0;",
+    "static mp_obj_t m_rta_off(void) {\n    rta_names_enabled = 0;\n    mp_dbg_rta_enabled = 0;",
+)
+
 replace_once(
     "static mp_obj_t m_rta_on(void) {\n    rta_last_code_state = NULL;",
     "static mp_obj_t m_rta_on(void) {\n    rta_name_used = 0;\n    rta_name_next = 0;\n    rta_last_code_state = NULL;",
