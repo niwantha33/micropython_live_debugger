@@ -119,8 +119,13 @@ require_one(anchor, helper + anchor, "RTA segment helper")
 # Original 0x05/0x06 RTA events also need whole-frame capacity checks:
 # dbg_push() drops individual bytes on ring overflow, which could otherwise
 # turn a truncated frame into an apparent but invalid function pointer.
+# Anchor to emit_rta_segment(), not to a shared declaration that also
+# appears in the existing breakpoint-hit encoder. Both functions use the same
+# local variable name, so the previous generic match found two occurrences.
 require_one(
+    "static inline void emit_rta_segment(uint8_t type, const void *fun_bc, uint32_t ts_us) {\n"
     "    uint32_t fun = (uint32_t)(uintptr_t)fun_bc;",
+    "static inline void emit_rta_segment(uint8_t type, const void *fun_bc, uint32_t ts_us) {\n"
     "    if (!rta_ring_can_write(11)) { dbg_lost += 11; return; }\n"
     "    uint32_t fun = (uint32_t)(uintptr_t)fun_bc;",
     "complete 11-byte RTA event capacity",
