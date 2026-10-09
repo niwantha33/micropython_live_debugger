@@ -39,7 +39,7 @@ anchor = "static inline void emit_rta_segment(uint8_t type, const void *fun_bc, 
 helper = r'''
 // RTA function names are requested from actual, live VM code_state->fun_bc
 // objects. NEVER dereference user-supplied addresses or attempt to scan GC.
-#define RTA_SYMBOL_CACHE_CAP 96
+#define RTA_SYMBOL_CACHE_CAP 128
 #define RTA_SYMBOL_MAX_NAME_BYTES 72
 
 typedef struct _rta_symbol_seen_t {
@@ -48,14 +48,11 @@ typedef struct _rta_symbol_seen_t {
 } rta_symbol_seen_t;
 
 static rta_symbol_seen_t rta_symbol_seen[RTA_SYMBOL_CACHE_CAP];
-static unsigned int rta_symbol_next = 0;
-
 static void rta_symbol_reset(void) {
     for (unsigned int i = 0; i < RTA_SYMBOL_CACHE_CAP; i++) {
         rta_symbol_seen[i].fun_bc = NULL;
         rta_symbol_seen[i].bytecode = NULL;
     }
-    rta_symbol_next = 0;
 }
 
 static void rta_emit_symbol_if_new(const void *ptr) {
@@ -65,10 +62,11 @@ static void rta_emit_symbol_if_new(const void *ptr) {
     // ptr comes directly from an executing MicroPython bytecode code_state.
     const mp_obj_fun_bc_t *fun = (const mp_obj_fun_bc_t *)ptr;
     const byte *code = fun->bytecode;
-    for (unsigned int i = 0; i < RTA_SYMBOL_CACHE_CAP; i++) {
-        if (rta_symbol_seen[i].fun_bc == ptr && rta_symbol_seen[i].bytecode == code) {
-            return;
-        }
+    // Direct-mapped cache: one lookup per VM switch. Avoid the RTA timing
+    // distortion caused by linearly scanning dozens of symbol slots.
+    const unsigned int slot = ((uintptr_t)ptr >> 3) & (RTA_SYMBOL_CACHE_CAP - 1);
+    if (rta_symbol_seen[slot].fun_bc == ptr && rta_symbol_seen[slot].bytecode == code) {
+        return;
     }
     const char *name = qstr_str(mp_obj_fun_bc_get_name(fun));
     if (name == NULL || name[0] == '\0') {
@@ -107,10 +105,9 @@ static void rta_emit_symbol_if_new(const void *ptr) {
     for (size_t i = 0; i < len; i++) {
         dbg_push((uint8_t)name[i]);
     }
-    // Bounded cache; re-emission after eviction is safe.
-    rta_symbol_seen[rta_symbol_next].fun_bc = ptr;
-    rta_symbol_seen[rta_symbol_next].bytecode = code;
-    rta_symbol_next = (rta_symbol_next + 1) % RTA_SYMBOL_CACHE_CAP;
+    // Safe re-emission on cache collision; never suppress a new VM object.
+    rta_symbol_seen[slot].fun_bc = ptr;
+    rta_symbol_seen[slot].bytecode = code;
 }
 
 '''
