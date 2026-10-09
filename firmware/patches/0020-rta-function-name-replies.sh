@@ -55,6 +55,12 @@ static void rta_symbol_reset(void) {
     }
 }
 
+static inline bool rta_ring_can_write(size_t frame_len) {
+    const uint16_t head = dbg_head;
+    const uint16_t tail = dbg_tail;
+    return ((tail + DBG_RING_SIZE - head - 1) % DBG_RING_SIZE) >= frame_len;
+}
+
 static void rta_emit_symbol_if_new(const void *ptr) {
     if (ptr == NULL) {
         return;
@@ -81,12 +87,9 @@ static void rta_emit_symbol_if_new(const void *ptr) {
     static const char prefix[] = "rta_name=";
     const size_t payload_len = sizeof(prefix) - 1 + 8 + 1 + len;
     const size_t frame_len = payload_len + 3;
-    const uint16_t head = dbg_head;
-    const uint16_t tail = dbg_tail;
-    const size_t free_bytes = (tail + DBG_RING_SIZE - head - 1) % DBG_RING_SIZE;
     // No partial reply frames when the trace ring is congested. A later
     // execution switch may retry the name because it is not cached below.
-    if (free_bytes < frame_len) {
+    if (!rta_ring_can_write(frame_len)) {
         return;
     }
 
@@ -113,6 +116,16 @@ static void rta_emit_symbol_if_new(const void *ptr) {
 '''
 require_one(anchor, helper + anchor, "RTA segment helper")
 
+# Original 0x05/0x06 RTA events also need whole-frame capacity checks:
+# dbg_push() drops individual bytes on ring overflow, which could otherwise
+# turn a truncated frame into an apparent but invalid function pointer.
+require_one(
+    "    uint32_t fun = (uint32_t)(uintptr_t)fun_bc;",
+    "    if (!rta_ring_can_write(11)) { dbg_lost += 11; return; }\\n"
+    "    uint32_t fun = (uint32_t)(uintptr_t)fun_bc;",
+    "complete 11-byte RTA event capacity",
+)
+
 old = '            emit_rta_segment(0x05, cur_fun_bc, now_us);'
 new = '            rta_emit_symbol_if_new(cur_fun_bc);\n' + old
 require_one(old, new, "RTA entry event")
@@ -126,7 +139,7 @@ require_one(old, new, "RTA session reset")
 
 p.write_text(s)
 for marker in ("rta_emit_symbol_if_new(cur_fun_bc);", "rta_symbol_reset();",
-               "mp_obj_fun_bc_get_name(fun)", "free_bytes < frame_len"):
+               "mp_obj_fun_bc_get_name(fun)", "rta_ring_can_write(frame_len)"):
     if marker not in s:
         raise SystemExit("RTA name patch incomplete: " + marker)
 print("0020: bounded, live VM RTA function-name replies installed")
