@@ -121,7 +121,7 @@ require_one(anchor, helper + anchor, "RTA segment helper")
 # turn a truncated frame into an apparent but invalid function pointer.
 require_one(
     "    uint32_t fun = (uint32_t)(uintptr_t)fun_bc;",
-    "    if (!rta_ring_can_write(11)) { dbg_lost += 11; return; }\\n"
+    "    if (!rta_ring_can_write(11)) { dbg_lost += 11; return; }\n"
     "    uint32_t fun = (uint32_t)(uintptr_t)fun_bc;",
     "complete 11-byte RTA event capacity",
 )
