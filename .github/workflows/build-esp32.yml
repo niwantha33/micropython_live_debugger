@@ -1,0 +1,134 @@
+name: Build ESP32-S3 debugger firmware
+
+on:
+  pull_request:
+    paths:
+      - 'firmware/patches/**'
+      - 'firmware/MICROPYTHON_REF'
+      - '.github/workflows/build-esp32.yml'
+      - 'esp32/**'
+  workflow_dispatch:
+
+concurrency:
+  group: esp32-s3-debugger-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-esp32s3:
+    name: Build ESP32-S3 debugger
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout debugger source
+        uses: actions/checkout@v4
+
+      - name: Load pinned MicroPython revision
+        run: |
+          MICROPYTHON_REF="$(tr -d '[:space:]' < firmware/MICROPYTHON_REF)"
+          test -n "$MICROPYTHON_REF"
+          echo "MICROPYTHON_REF=$MICROPYTHON_REF" >> "$GITHUB_ENV"
+
+      - name: Clone pinned MicroPython
+        run: |
+          git clone https://github.com/micropython/micropython.git micropython
+          cd micropython
+          git checkout --detach "$MICROPYTHON_REF"
+          git submodule update --init --recursive
+          make -C mpy-cross
+
+      - name: Apply debugger core patches
+        run: |
+          export MPY_DIR="$GITHUB_WORKSPACE/micropython"
+          for p in firmware/patches/0*.sh; do
+            echo ">> $p"
+            bash "$p"
+          done
+
+      - name: Install frozen dual-CDC debugger modules
+        run: |
+          BOARD_DIR="$GITHUB_WORKSPACE/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
+          STOCK_BOOT="$GITHUB_WORKSPACE/micropython/ports/esp32/modules/_boot.py"
+          MAIN_C="$GITHUB_WORKSPACE/micropython/ports/esp32/main.c"
+          rm -rf "$BOARD_DIR/debugger_frozen"
+          cp -R esp32/frozen "$BOARD_DIR/debugger_frozen"
+          cp esp32/manifest.py "$BOARD_DIR/manifest_debugger.py"
+
+          # Phase 1: descriptor setup before mp_usbd_init().
+          {
+            echo
+            echo "# MicroPython Studio USB descriptor bootstrap"
+            echo "import mpy_studio_boot"
+          } >> "$STOCK_BOOT"
+
+          # Phase 2: start the debugger thread only after TinyUSB is fully
+          # initialised. This preserves CDC0 raw REPL/file upload stability.
+          python - "$MAIN_C" <<'PY'
+          import sys
+          from pathlib import Path
+
+          p = Path(sys.argv[1])
+          text = p.read_text()
+          old = "    #if MICROPY_HW_ENABLE_USBDEV\n    mp_usbd_init();\n    #endif\n"
+          new = "    #if MICROPY_HW_ENABLE_USBDEV\n    mp_usbd_init();\n    pyexec_frozen_module(\"mpy_studio_start.py\", false);\n    #endif\n"
+          if text.count(old) != 1:
+              raise SystemExit("expected exactly one ESP32 mp_usbd_init startup block")
+          p.write_text(text.replace(old, new, 1))
+          PY
+
+      - name: Build MicroPython for ESP32-S3
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.5
+          target: esp32s3
+          path: micropython/ports/esp32
+          command: make BOARD=ESP32_GENERIC_S3 FROZEN_MANIFEST="$PWD/boards/ESP32_GENERIC_S3/manifest_debugger.py" submodules && make BOARD=ESP32_GENERIC_S3 FROZEN_MANIFEST="$PWD/boards/ESP32_GENERIC_S3/manifest_debugger.py" -j4
+
+      - name: Verify debugger API in ESP32-S3 image
+        run: |
+          BUILD="$GITHUB_WORKSPACE/micropython/ports/esp32/build-ESP32_GENERIC_S3"
+          test -s "$BUILD/firmware.bin"
+          strings -a "$BUILD/firmware.bin" | grep -Fxq 'rta_on' || { echo "ERROR: missing dbg.rta_on"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fxq 'rta_off' || { echo "ERROR: missing dbg.rta_off"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fxq 'set_bp' || { echo "ERROR: missing dbg.set_bp"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fxq 'clear_bp' || { echo "ERROR: missing dbg.clear_bp"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fq 'MicroPython Studio ESP32-S3 Debug' || { echo "ERROR: missing frozen native debugger bootstrap"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fq 'mpy_studio_start.py' || { echo "ERROR: missing late debugger-start hook"; exit 1; }
+          strings -a "$BUILD/firmware.bin" | grep -Fq 'usb-device-cdc' || true
+
+      - name: Stage ESP32-S3 test firmware
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          BUILD="$GITHUB_WORKSPACE/micropython/ports/esp32/build-ESP32_GENERIC_S3"
+          OUT="$GITHUB_WORKSPACE/out/ESP32S3"
+          mkdir -p "$OUT"
+          cp "$BUILD/firmware.bin" "$OUT/firmware_esp32s3.bin"
+          cp "$BUILD/micropython.uf2" "$OUT/micropython_esp32s3.uf2" 2>/dev/null || true
+          cp "$BUILD/bootloader/bootloader.bin" "$OUT/bootloader.bin"
+          cp "$BUILD/partition_table/partition-table.bin" "$OUT/partition-table.bin"
+          cp "$BUILD/micropython.bin" "$OUT/micropython.bin"
+          cp esp32/README.md "$OUT/TESTING.md"
+          SHA256="$(sha256sum "$OUT/firmware_esp32s3.bin" | awk '{print $1}')"
+          {
+            echo "source_commit: $SOURCE_SHA"
+            echo "source_branch: $SOURCE_BRANCH"
+            echo "micropython_commit: $MICROPYTHON_REF"
+            echo "esp_idf: v5.5.5"
+            echo "board: ESP32_GENERIC_S3"
+            echo "transport: serial-jtag-repl-plus-native-usb-debugger"
+            echo "usb_layout: SERIAL_JTAG=REPL_UPLOAD,NATIVE_CDC=DEBUGGER"
+            echo "studio_trace_pump_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
+            echo "built_at: $(date -u +%FT%TZ)"
+            echo "sha256: $SHA256"
+            echo "debug_api: set_bp,clear_bp,step,step_in,step_out,locals,call_stack"
+            echo "rta_api: dbg.rta_on,dbg.rta_off"
+          } > "$OUT/VERSION.txt"
+
+      - name: Upload ESP32-S3 test firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-firmware-esp32s3-test
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
