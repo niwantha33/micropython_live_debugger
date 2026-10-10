@@ -1,11 +1,41 @@
 # MicroPython Live Debugger
 
-A live, bytecode-level debugger for MicroPython on the Raspberry Pi Pico 2 W.
+A live, bytecode-level MicroPython debugger, validated on Pico 2 W and under isolated development for other Pico boards and ESP32 targets.
 Set breakpoints, step through code, inspect named locals, view the call stack,
 and use **conditional breakpoints** — all on a running board, over USB, with a
 VS Code UI.
 
 No JTAG. No `sys.settrace`. No print-debugging.
+
+## Board and firmware status — 8 October 2026
+
+| Target | Current evidence | Safe distribution status |
+| --- | --- | --- |
+| Raspberry Pi Pico 2 W | Existing debugger works on real hardware, including breakpoints/stepping/RTA | Current published UF2 remains unchanged; newer frozen no-upload candidate awaits hardware validation |
+| Pico / Pico W / Pico 2 | New frozen firmware builds passed CI for all four Pico targets ([run 37741930577](https://github.com/niwantha33/micropython_live_debugger/actions/runs/37741930577)) | New candidates are **test artifacts only**; do not treat compile success as hardware acceptance |
+| ESP32-S3 | Serial COM for REPL/upload, native USB COM for debug; breakpoint and short RTA verified | Test branch [PR #4](https://github.com/niwantha33/micropython_live_debugger/pull/4); 30-second RTA, soft reset and recovery pending; not published |
+| ESP32-C3 | Hardware feasibility review: fixed USB Serial/JTAG, no programmable USB OTG | **No debug firmware candidate yet.** [Design and later board test](esp32c3/README.md) |
+
+**No-upload debugging:** the planned supported workflow is **flash the correct
+debugger-enabled firmware once → REPL/file-upload port → Start Debug → Connect only
+on the independent debugger port**. For Pico the two CDC ports share one cable;
+on the tested ESP32-S3 the two physical connectors serve different purposes.
+Older Pico UF2 firmware may still need the explicitly selected *legacy* file
+upload; do not overwrite users' unrelated `boot.py` files.
+
+**Release isolation:** Pico frozen firmware is in
+[`feature/pico-frozen-debugger-v1`](https://github.com/niwantha33/micropython_live_debugger/tree/feature/pico-frozen-debugger-v1)
+(draft PR #6), S3 in `feature/esp32-s3-debugger-v1` (PR #4), and the C3
+feasibility investigation in `feature/esp32-c3-feasibility-v1`.
+The matching Studio UX lives in
+[`feature/frozen-debugger-connect-only`](https://github.com/niwantha33/micropython-studio/tree/feature/frozen-debugger-connect-only)
+(draft PR #52). **Do not merge, replace published binaries, or advertise hardware
+support until board-specific acceptance.**
+
+**RTA semantics:** `Observed VM %` is the proportion of *exclusive elapsed
+MicroPython execution-segment time* captured by the tracer; it is not MCU CPU
+utilization. `Total` is inclusive time. Native waits/sleeps and unresolved
+function addresses must not be labelled as CPU load.
 
 ## Features
 
@@ -15,7 +45,7 @@ No JTAG. No `sys.settrace`. No print-debugging.
 - **Call stack** with function names, click a frame to jump to source
 - **Conditional breakpoints** — `b > 1`, supports Python `and / or / not`
 - **Live line highlight** of the paused line
-- **Auto-upload** of debugger files via "Start Debug" button
+- **Connect only** with new firmware that freezes the debugger helpers (separate candidates); explicit legacy file-upload option retained for older Pico firmware
 - **Robust port handling** — friendly errors when COM port is busy
 - **Two USB CDCs** — debugger frames on CDC1, REPL stays untouched on CDC0
 
@@ -23,7 +53,7 @@ No JTAG. No `sys.settrace`. No print-debugging.
 
 **Raspberry Pi Pico 2 W (RP2350).** Dual USB-CDC built in.
 
-ESP32-S3 port planned for v0.2.
+ESP32-S3: USB-Serial/JTAG REPL and native USB debugger have been exercised on hardware, with 30-second RTA/recovery acceptance pending; see PR #4. ESP32-C3: feasibility research only; its fixed USB Serial/JTAG controller **cannot implement the S3 TinyUSB dual-CDC gadget layout**.
 
 ## Quick start
 
@@ -83,7 +113,7 @@ cd firmware
 ./build.sh
 ```
 
-The script [build.sh](file:///c:/Claude_Projects/micropython_debugger/firmware/build.sh) automatically:
+The script [build.sh](firmware/build.sh) automatically:
 1. Resets the MicroPython repository to a clean state.
 2. Applies all patches sequentially.
 3. Clears stale CMake configurations for each target.
@@ -97,7 +127,7 @@ The script [build.sh](file:///c:/Claude_Projects/micropython_debugger/firmware/b
 
 ```
 firmware/
-  patches/                  17 numbered .sh patches that fork MicroPython
+  patches/                  numbered debugger patches for MicroPython
   firmware_pico_w.uf2       Pre-built firmware for Pico W (Wi-Fi RP2040)
   firmware_pico2_w.uf2      Pre-built firmware for Pico 2 W (Wi-Fi RP2350)
   firmware_pico2.uf2        Pre-built firmware for Pico 2 (non-Wi-Fi RP2350)
@@ -157,7 +187,9 @@ Known limitations:
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md). Next:
-- ESP32-S3 port
+- ESP32-S3 30-second RTA and reconnect hardware acceptance
+- Pico family self-contained firmware hardware acceptance (PR #6)
+- ESP32-C3 transport feasibility and board identification (see esp32c3/README.md)
 - Watch expressions
 - Persistent device console (one port owner, no contention)
 - Variable edit (poke value into running program)

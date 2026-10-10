@@ -1,5 +1,41 @@
 # Roadmap
 
+## Current board-support roadmap — 8 October 2026
+
+This section is the **current acceptance plan**; the original numbered
+phases below document historical Pico development. No CI result proves
+physical device functionality on its own.
+
+| Track | Branch / PR | Current stage | Release gate |
+| --- | --- | --- | --- |
+| Pico 2 W stable | `main` / published UF2 | Existing breakpoint, step, locals, RTA workflow used on hardware | Keep existing binaries unchanged |
+| Frozen Pico family (Pico, W, 2, 2 W) | `feature/pico-frozen-debugger-v1` / draft [#6](https://github.com/niwantha33/micropython_live_debugger/pull/6) | **4/4 CI firmware builds passed** (run [37741930577](https://github.com/niwantha33/micropython_live_debugger/actions/runs/37741930577)); frozen debugger helpers prevent separate file upload | Real board CDC0 REPL/upload, CDC1 debugger, breakpoints, reset, 30s RTA, then review |
+| ESP32-S3 | `feature/esp32-s3-debugger-v1` / [#4](https://github.com/niwantha33/micropython_live_debugger/pull/4) | Serial REPL/file access and native-USB debugger, breakpoint + short RTA observed; CI [37687220777](https://github.com/niwantha33/micropython_live_debugger/actions/runs/37687220777) passed | Long RTA with no watchdog, debugger reconnect/soft reset/recovery, confirm build identity |
+| ESP32-C3 | `feature/esp32-c3-feasibility-v1` | Hardware architecture assessed; **no firmware built** | Identify exact user board and transport, prove stable REPL, design single-core transport, then separate CI/bench tests |
+| Studio host | `feature/frozen-debugger-connect-only` / draft [#52](https://github.com/niwantha33/micropython-studio/pull/52) | Lint/VS Code tests and VSIX packaging passed | Verify both new Pico and S3 with separate debugger COM; preserve explicit legacy Pico setup |
+
+### Near-term gated deliverables
+
+- [x] Preserve known-working Pico 2 W and S3 development state; isolate changes.
+- [x] Document and test freeze-able Pico debugger pump/startup.
+- [x] Build all four new Pico-family candidates successfully in CI.
+- [x] Implement Studio Connect-only default and maintain legacy Pico opt-in in a draft branch.
+- [ ] Bench-validate frozen Pico 2 W first; then check remaining Pico boards individually.
+- [ ] Bench-validate ESP32-S3 30-second RTA, no watchdog/USB drops, and reset.
+- [ ] Inspect ESP32-C3 connectors/USB-UART topology before any porting or flash.
+- [ ] Implement a C3 transport **without** copying the S3 TinyUSB dual-CDC configuration; see [C3 design notes](esp32c3/README.md).
+- [ ] Improve RTA symbol names and label exclusive elapsed-time share clearly; add real CPU/idle utilization only with genuine scheduler instrumentation.
+- [ ] Review production firmware/version manifests and Studio compatibility **per board**.
+- [ ] Publish new binaries only after hardware validation and explicit approval.
+
+**Important automation hazard:** the firmware-binaries repository currently polls
+source `main` every 30 minutes and rebuilds Pico UF2s whenever the
+source HEAD SHA changes, including documentation-only changes. Keep these
+planning-only edits on an unmerged branch until publishing can be safely
+gated or the auto-sync can distinguish firmware input changes from docs.
+
+---
+
 Phased plan. Each phase ends with something testable. Don't start a phase
 until the previous one is green.
 
