@@ -1,0 +1,214 @@
+name: Build frozen Pico + RTA integration candidate
+
+on:
+  push:
+    branches:
+      - fix/pico-frozen-rta-integration-candidate
+    paths:
+      - 'firmware/patches/**'
+      - 'firmware/MICROPYTHON_REF'
+      - '.github/workflows/build-frozen-rta-integration.yml'
+      - 'rp2/**'
+  pull_request:
+    paths:
+      - 'firmware/patches/**'
+      - 'firmware/MICROPYTHON_REF'
+      - '.github/workflows/build-frozen-rta-integration.yml'
+      - 'rp2/**'
+  workflow_dispatch:
+
+jobs:
+  build-rp2:
+    name: Build ${{ matrix.label }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - id: pico
+            label: Raspberry Pi Pico
+            board: RPI_PICO
+            folder: Pico
+            asset: firmware_pico.uf2
+          - id: picow
+            label: Raspberry Pi Pico W
+            board: RPI_PICO_W
+            folder: Picow
+            asset: firmware_pico_w.uf2
+          - id: pico2
+            label: Raspberry Pi Pico 2
+            board: RPI_PICO2
+            folder: Pico2
+            asset: firmware_pico2.uf2
+          - id: pico2w
+            label: Raspberry Pi Pico 2 W
+            board: RPI_PICO2_W
+            folder: Pico2w
+            asset: firmware_pico2_w.uf2
+
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Install ARM toolchain and build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-arm-none-eabi cmake build-essential python3 git
+
+      - name: Load pinned MicroPython revision
+        run: |
+          MICROPYTHON_REF="$(tr -d '[:space:]' < firmware/MICROPYTHON_REF)"
+          test -n "$MICROPYTHON_REF"
+          echo "MICROPYTHON_REF=$MICROPYTHON_REF" >> "$GITHUB_ENV"
+
+      - name: Clone pinned MicroPython
+        run: |
+          git clone https://github.com/micropython/micropython.git "$HOME/micropython"
+          cd "$HOME/micropython"
+          git checkout --detach "$MICROPYTHON_REF"
+          git submodule update --init --recursive
+          make -C mpy-cross
+
+      - name: Apply debugger patches
+        run: |
+          export MPY_DIR="$HOME/micropython"
+          for p in firmware/patches/0*.sh; do
+            echo ">> $p"
+            bash "$p"
+          done
+
+
+      - name: Test frozen Pico bootstrap without hardware
+        run: |
+          python3 -m unittest discover -s rp2/tests -p 'test_*.py' -v
+          python3 -m py_compile rp2/frozen/*.py
+
+      - name: Install frozen Pico debugger (test candidate only)
+        env:
+          BOARD: ${{ matrix.board }}
+        run: |
+          set -euo pipefail
+          BOARD_DIR="$HOME/micropython/ports/rp2/boards/$BOARD"
+          MAIN_C="$HOME/micropython/ports/rp2/main.c"
+          mkdir -p "$BOARD_DIR/mpy_studio_frozen"
+          cp rp2/frozen/*.py "$BOARD_DIR/mpy_studio_frozen/"
+
+          # Reuse exactly the already-tested Studio protocol-v5 pump.
+          # Pin both its source commit and content hash: no silent latest drift.
+          curl --fail --location --silent --show-error --retry 3 \
+            https://raw.githubusercontent.com/niwantha33/micropython-studio/a62aa231ee15bec41de0a8f9a7bdc89bbbaae975/src/debugger_files/trace_pump.py \
+            --output "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py"
+          test "$(git hash-object "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py")" = \
+            "f7bded9d6180849e9e92cdd9e06bca4c223ca2bc"
+          grep -q 'PUMP_PROTOCOL = 5' "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py"
+          grep -q 'PUMP_BUILD = "2026-10-07-rta-viewer-v5"' "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py"
+
+          # Keep the original board manifest (including Wi-Fi/BLE packages).
+          # Plain Pico/Pico2 have no board-specific manifest: include stock one.
+          if [ ! -e "$BOARD_DIR/manifest.py" ]; then
+            printf '%s\n' 'include("$(PORT_DIR)/boards/manifest.py")' > "$BOARD_DIR/manifest.py"
+          fi
+          cat >> "$BOARD_DIR/manifest.py" <<'MANIFEST'
+          require("usb-device")
+          require("usb-device-cdc")
+          freeze("mpy_studio_frozen")
+          MANIFEST
+
+          # Phase 1: configure CDC1 immediately after stock filesystem init.
+          # Phase 2: start the pump only after mp_usbd_init(), never in boot.
+          python - "$MAIN_C" <<'PY'
+          from pathlib import Path
+          import sys
+
+          p = Path(sys.argv[1])
+          src = p.read_text()
+          early = '        // Execute user scripts.\n        int ret = pyexec_file_if_exists("boot.py");'
+          replacement = ('        // Frozen Studio debugger CDC setup, before user boot.py and USB init.\n'
+                         '        pyexec_frozen_module("mpy_studio_pico_boot.py", false);\n\n'
+                         + early)
+          if src.count(early) != 1:
+              raise SystemExit("Pico _boot/boot.py startup anchor was not unique")
+          src = src.replace(early, replacement, 1)
+
+          late = '        #if MICROPY_HW_ENABLE_USBDEV\n        mp_usbd_init();\n        #endif\n'
+          new_late = ('        #if MICROPY_HW_ENABLE_USBDEV\n'
+                      '        mp_usbd_init();\n'
+                      '        pyexec_frozen_module("mpy_studio_pico_start.py", false);\n'
+                      '        #endif\n')
+          if src.count(late) != 1:
+              raise SystemExit("Pico mp_usbd_init startup anchor was not unique")
+          p.write_text(src.replace(late, new_late, 1))
+          PY
+
+      - name: Build firmware
+        run: |
+          set -euo pipefail
+          cd "$HOME/micropython/ports/rp2"
+          # Always use the patched board manifest; W boards explicitly
+          # select their board manifest in mpconfigboard.cmake.
+          FROZEN="$PWD/boards/${{ matrix.board }}/manifest.py"
+          make BOARD=${{ matrix.board }} FROZEN_MANIFEST="$FROZEN" submodules
+          make BOARD=${{ matrix.board }} FROZEN_MANIFEST="$FROZEN" -j4
+
+      - name: Verify debugger capabilities in compiled UF2
+        run: |
+          UF2="$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2"
+          test -s "$UF2"
+          # UF2's 256-byte block boundaries split QSTR strings; check the
+          # exact linked ELF instead of false-negative checks in raw UF2.
+          ELF="$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.elf"
+          test -s "$ELF"
+          strings -a "$ELF" > "$RUNNER_TEMP/frozen-rta-elf-strings.txt"
+          for symbol in rta_on rta_off rta_names_on; do
+            grep -Fxq "$symbol" "$RUNNER_TEMP/frozen-rta-elf-strings.txt" || {
+              echo "ERROR: linked ELF missing dbg.$symbol"; exit 1;
+            }
+          done
+          for symbol in mpy_studio_pico_boot.py mpy_studio_pico_start.py 2026-10-07-rta-viewer-v5; do
+            grep -Fq "$symbol" "$RUNNER_TEMP/frozen-rta-elf-strings.txt" || {
+              echo "ERROR: linked ELF missing frozen module/pump $symbol"; exit 1;
+            }
+          done
+          echo "Verified frozen CDC bootstrap, protocol-v5 pump and opt-in 0x07 RTA exports for ${{ matrix.board }}"
+
+      - name: Stage firmware artifact
+        env:
+          SOURCE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          SOURCE_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          mkdir -p "out/${{ matrix.folder }}"
+          UF2="out/${{ matrix.folder }}/${{ matrix.asset }}"
+          BUILD_DIR="$HOME/micropython/ports/rp2/build-${{ matrix.board }}"
+          cp "$BUILD_DIR/firmware.uf2" "$UF2"
+          mkdir -p "out/${{ matrix.folder }}/symbols"
+          cp "$BUILD_DIR/firmware.elf" "out/${{ matrix.folder }}/symbols/firmware.elf"
+          if [ -s "$BUILD_DIR/firmware.map" ]; then
+            cp "$BUILD_DIR/firmware.map" "out/${{ matrix.folder }}/symbols/firmware.map"
+          fi
+          SHA256="$(sha256sum "$UF2" | awk '{print $1}')"
+          {
+            echo "source_commit: ${SOURCE_SHA}"
+            echo "source_branch: ${SOURCE_BRANCH}"
+            echo "workflow_commit: ${GITHUB_SHA}"
+            echo "micropython_commit: ${MICROPYTHON_REF}"
+            echo "board: ${{ matrix.board }}"
+            echo "built_at: $(date -u +%FT%TZ)"
+            echo "sha256: ${SHA256}"
+            echo "rta_api: dbg.rta_on,dbg.rta_off,dbg.rta_names_on"
+            echo "rta_names_frame: 0x07-opt-in-crc16"
+            echo "transport: PICO_CDC0=REPL_UPLOAD,PICO_CDC1=DEBUGGER"
+            echo "bootstrap: frozen-pico-two-phase"
+            echo "pump_protocol: 5"
+            echo "pump_build: 2026-10-07-rta-viewer-v5"
+            echo "pump_source_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
+            echo "pump_source_blob: f7bded9d6180849e9e92cdd9e06bca4c223ca2bc"
+          } > "out/${{ matrix.folder }}/VERSION.txt"
+
+      - name: Upload test firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-firmware-${{ matrix.id }}-frozen-rta-integration-test
+          path: out/
+          if-no-files-found: error
+          retention-days: 14
+
