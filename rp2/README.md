@@ -82,6 +82,40 @@ change previously flashed devices.
 Only after board-specific hardware validation: review/merge intentionally and
 publish each approved UF2. CI artifacts are **test-only**, never auto-deployed.
 
+## Firmware integration and USB disappearance diagnostics
+
+The frozen two-CDC image is experimental. Its source branch originally carried
+`0020-rta-function-name-replies.sh`, which writes function names as unverified
+0x03 replies. Firmware `main` now uses the alternative, opt-in and CRC-checked
+`0020-rta-name-metadata.sh` (0x07) from PR #10. **Do not combine both**: the
+firmware patch runner applies every `0*.sh` and both would add redundant VM
+hook work/frames. This integration change removes the former emitter from the
+frozen candidate branch. When this branch is integrated with firmware `main`,
+retain the 0x07 metadata patch. It is disabled by default until host opt-in.
+
+A Windows REPL error such as `FileNotFoundError: could not open COM8` means the
+selected port **does not exist at that moment**. It alone cannot distinguish a
+stale COM assignment from board reset/USB enumeration failure.
+
+1. Unplug the board, capture `Get-PnpDevice -PresentOnly -Class Ports` from
+   PowerShell, then reconnect the same cable and capture it again. For the
+   frozen Pico candidate, expect a new CDC0 (REPL) and CDC1 (debugger) COM port.
+2. Select the **current** CDC0 for REPL and the distinct CDC1 for debugger.
+   Windows can reassign port numbers after reflash/re-enumeration.
+3. With RTA OFF, check repeated connect/disconnect; then run RTA ON/OFF and
+   repeat the listing. If both ports vanish unexpectedly, capture the time
+   and the last REPL/device traceback; suspect reset, USB or firmware crash.
+4. If the REPL port works but CDC1 is missing, inspect the board's boot output.
+   A *legacy* Studio `boot.py` may try to initialise USB a second time and
+   conflict with the frozen early bootstrap. Back up and inspect the file;
+   **never automatically delete or overwrite user boot.py**.
+5. If no valid COM ports appear, do not repeatedly connect to the old number.
+   Restore the exact board-specific last-working UF2 only if recovery is
+   required and user files have been backed up. No automated flashing.
+
+Build success only verifies code compilation; two stable Windows COM ports,
+REPL/file upload and debugger operation require a real-board smoke test.
+
 ## RTA time explanation
 
 `Observed VM %` is **not CPU utilization**. It is the percentage of recorded
