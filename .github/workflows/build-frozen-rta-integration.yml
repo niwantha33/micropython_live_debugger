@@ -159,7 +159,7 @@ jobs:
           ELF="$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.elf"
           test -s "$ELF"
           strings -a "$ELF" > "$RUNNER_TEMP/frozen-rta-elf-strings.txt"
-          for symbol in rta_on rta_off rta_names_on; do
+          for symbol in rta_on rta_off rta_names_on globals scope_step_revision; do
             grep -Fxq "$symbol" "$RUNNER_TEMP/frozen-rta-elf-strings.txt" || {
               echo "ERROR: linked ELF missing dbg.$symbol"; exit 1;
             }
@@ -198,6 +198,7 @@ jobs:
             echo "rta_names_frame: 0x07-opt-in-crc16"
             echo "transport: PICO_CDC0=REPL_UPLOAD,PICO_CDC1=DEBUGGER"
             echo "bootstrap: frozen-pico-two-phase"
+            echo "scope_step_revision: 1"
             echo "pump_protocol: 5"
             echo "pump_build: 2026-10-07-rta-viewer-v5"
             echo "pump_source_commit: b6e862bdc473301957a5d08af26c4e3f02e337c0"
