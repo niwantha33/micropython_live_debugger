@@ -85,9 +85,18 @@ jobs:
         run: |
           UF2="$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2"
           test -s "$UF2"
-          strings -a "$UF2" | grep -Fxq 'rta_on'  || { echo "ERROR: compiled UF2 is missing dbg.rta_on"; exit 1; }
-          strings -a "$UF2" | grep -Fxq 'rta_off' || { echo "ERROR: compiled UF2 is missing dbg.rta_off"; exit 1; }
-          echo "Verified RTA firmware exports for ${{ matrix.board }}"
+          # UF2 records have fixed payload boundaries; an otherwise valid
+          # QSTR can straddle two records and be invisible to raw UF2 strings.
+          # Verify the exact same build's linked ELF before UF2 packaging.
+          ELF="$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.elf"
+          test -s "$ELF"
+          strings -a "$ELF" > "$RUNNER_TEMP/rta-elf-strings.txt"
+          for symbol in rta_on rta_off rta_names_on; do
+            grep -Fxq "$symbol" "$RUNNER_TEMP/rta-elf-strings.txt" || {
+              echo "ERROR: linked ELF is missing dbg.$symbol"; exit 1;
+            }
+          done
+          echo "Verified RTA firmware exports in linked ELF for ${{ matrix.board }}"
 
       - name: Stage firmware artifact
         env:
@@ -96,7 +105,17 @@ jobs:
         run: |
           mkdir -p "out/${{ matrix.folder }}"
           UF2="out/${{ matrix.folder }}/${{ matrix.asset }}"
-          cp "$HOME/micropython/ports/rp2/build-${{ matrix.board }}/firmware.uf2" "$UF2"
+          BUILD_DIR="$HOME/micropython/ports/rp2/build-${{ matrix.board }}"
+          cp "$BUILD_DIR/firmware.uf2" "$UF2"
+          # Preserve matching native symbols for development diagnosis only.
+          # Python heap-function names still require live RTA metadata.
+          mkdir -p "out/${{ matrix.folder }}/symbols"
+          cp "$BUILD_DIR/firmware.elf" "out/${{ matrix.folder }}/symbols/firmware.elf"
+          if [ -s "$BUILD_DIR/firmware.map" ]; then
+            cp "$BUILD_DIR/firmware.map" "out/${{ matrix.folder }}/symbols/firmware.map"
+          else
+            echo "::warning::No firmware.map produced for ${{ matrix.board }}"
+          fi
           SHA256="$(sha256sum "$UF2" | awk '{print $1}')"
           {
             echo "source_commit: ${SOURCE_SHA}"
