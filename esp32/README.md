@@ -87,7 +87,7 @@ It remains disabled on ESP32-S3 until a separate implementation is validated.
 
 ## Hardware-validation checkpoint — 2026-10-08 (FROZEN FOR TESTING)
 
-**Development remains on `feature/esp32-s3-debugger-v1`, PR #4. Do not merge or publish this candidate.**
+**Historical hardware checkpoint. The current candidate remains in PR #4; the shared native scope/step corrections require fresh S3 qualification before merge or publication.**
 Last verified CI candidate: `e36296ad62ebaac1e94a368711ea5ea7abcb596e`;
 workflow [37687220777](https://github.com/niwantha33/micropython_live_debugger/actions/runs/37687220777)
 completed successfully and uploaded artifact `debug-firmware-esp32s3-test`.
@@ -129,3 +129,7 @@ Keep the stable Pico/RP2 debugger and its published UF2s unchanged while a separ
 Pico debugger helpers. The Studio host's candidate "Connect only" experience
 is developed separately on `feature/frozen-debugger-connect-only`.
 No firmware from these test branches is automatically released.
+
+## Scope/step candidate qualification
+
+The shared native core now includes paused-user globals, next-opcode stepping and `dbg.scope_step_revision()` (revision 1). The ESP32-specific frozen pump rejects internal or oversized global scope replies without truncation. Preserve the 256-byte CDC buffers and bounded drain bursts. Validate both physical interfaces, breakpoint, locals, globals, actual variable change during stepping, Continue, RTA and reattachment. The 30-second RTA watchdog test remains mandatory. No Pico qualification substitutes for this test.

@@ -44,7 +44,10 @@ jobs:
             bash "$p"
           done
 
-      - name: Install frozen dual-CDC debugger modules
+      - name: Test ESP32-S3 scope reply contracts
+        run: python3 -m unittest discover -s esp32/tests -v
+
+      - name: Install frozen ESP32-S3 debugger modules
         run: |
           BOARD_DIR="$GITHUB_WORKSPACE/micropython/ports/esp32/boards/ESP32_GENERIC_S3"
           STOCK_BOOT="$GITHUB_WORKSPACE/micropython/ports/esp32/modules/_boot.py"
@@ -87,6 +90,11 @@ jobs:
         run: |
           BUILD="$GITHUB_WORKSPACE/micropython/ports/esp32/build-ESP32_GENERIC_S3"
           test -s "$BUILD/firmware.bin"
+          test -s "$BUILD/micropython.elf"
+          strings -a "$BUILD/micropython.elf" > "$RUNNER_TEMP/esp32-elf-strings.txt"
+          for symbol in globals scope_step_revision rta_names_on step; do
+            grep -Fxq "$symbol" "$RUNNER_TEMP/esp32-elf-strings.txt" || { echo "ERROR: missing dbg.$symbol"; exit 1; }
+          done
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'rta_on' || { echo "ERROR: missing dbg.rta_on"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'rta_off' || { echo "ERROR: missing dbg.rta_off"; exit 1; }
           strings -a "$BUILD/firmware.bin" | grep -Fxq 'set_bp' || { echo "ERROR: missing dbg.set_bp"; exit 1; }
@@ -118,10 +126,12 @@ jobs:
             echo "board: ESP32_GENERIC_S3"
             echo "transport: serial-jtag-repl-plus-native-usb-debugger"
             echo "usb_layout: SERIAL_JTAG=REPL_UPLOAD,NATIVE_CDC=DEBUGGER"
-            echo "studio_trace_pump_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
+            echo "studio_trace_pump_base_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
+            echo "esp32_trace_pump_blob: $(git hash-object esp32/frozen/mpy_studio_trace_pump.py)"
             echo "built_at: $(date -u +%FT%TZ)"
             echo "sha256: $SHA256"
-            echo "debug_api: set_bp,clear_bp,step,step_in,step_out,locals,call_stack"
+            echo "scope_step_revision: 1"
+            echo "debug_api: set_bp,clear_bp,step,step_in,step_out,locals,globals,call_stack"
             echo "rta_api: dbg.rta_on,dbg.rta_off"
           } > "$OUT/VERSION.txt"
 

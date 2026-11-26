@@ -1,4 +1,4 @@
-# Frozen from micropython-studio main a62aa231ee15bec41de0a8f9a7bdc89bbbaae975
+# ESP32-S3 adaptation of Studio pump a62aa231ee15bec41de0a8f9a7bdc89bbbaae975; native scope/step fixes follow the shared core.
 # trace_pump.py — runs on the Pico.
 #
 # Bidirectional:
@@ -52,6 +52,29 @@ def _write_all(cdc, data, max_retries=40):
         except Exception:
             break
     return written
+
+
+def _globals_reply(depth):
+    """Never return internal pump globals or a truncated dictionary."""
+    prefix = "depth=%d " % depth
+    try:
+        if not hasattr(dbg, "globals"):
+            return prefix + "globals_unavailable=native scope API missing"
+        g = dbg.globals(depth)
+        if g is None:
+            return prefix + "globals_unavailable=no paused user frame"
+        if g is globals() or g.get("__name__") in ("trace_pump", "mpy_studio_trace_pump", "mpy_studio_pico_trace_pump"):
+            return prefix + "globals_unavailable=internal debugger scope"
+        values = {}
+        for key, value in g.items():
+            if not key.startswith("__"):
+                values[key] = repr(value)
+        text = prefix + "globals=" + repr(values)
+        if len(text.encode()) > 250:
+            return prefix + "globals_unavailable=scope exceeds single frame; pagination required"
+        return text
+    except Exception:
+        return prefix + "globals_unavailable=scope inspection failed"
 
 
 def _pump():
@@ -408,52 +431,10 @@ def _pump():
                 except Exception:
                     pass
             elif cmd_type == 0x1A:
-                # globals: return dictionary of user globals
-                try:
-                    depth = cmd_buf[3] if cmd_len > 0 else 0
-                    try:
-                        if hasattr(dbg, 'globals'):
-                            g = dbg.globals(depth)
-                            while g is not None and g.get('__name__') == 'trace_pump':
-                                try:
-                                    next_g = dbg.globals(depth + 1)
-                                    if next_g is None:
-                                        break
-                                    depth += 1
-                                    g = next_g
-                                except ValueError:
-                                    break
-                        else:
-                            g = None
-                    except ValueError:
-                        g = None
-                    if g is None:
-                        try:
-                            paused = dbg.locals(0) is not None
-                        except Exception:
-                            paused = True
-                        if paused:
-                            try:
-                                import sys
-                                g = sys.modules['__main__'].__dict__
-                            except Exception:
-                                g = globals()
-                    if g is None:
-                        text = "(not paused)"
-                    else:
-                        user_globals = {}
-                        for k, v in g.items():
-                            if not k.startswith("__"):
-                                user_globals[k] = repr(v)
-                        text = "depth=%d globals=%r" % (depth, user_globals)
-                except Exception as e:
-                    text = "err: " + repr(e)
-                payload = text.encode()[:250]
+                depth = cmd_buf[3] if cmd_len > 0 else 0
+                payload = _globals_reply(depth).encode()
                 frame = bytes([0xAA, 0x03, len(payload)]) + payload
-                try:
-                    _write_all(cdc, frame)
-                except Exception:
-                    pass
+                _write_all(cdc, frame)
             elif cmd_type == 0x22:
                 # pump_info: debug-CDC capability handshake. This lets Studio
                 # verify the exact Python pump without touching the REPL port.
