@@ -96,10 +96,10 @@ jobs:
           # Reuse exactly the already-tested Studio protocol-v5 pump.
           # Pin both its source commit and content hash: no silent latest drift.
           curl --fail --location --silent --show-error --retry 3 \
-            https://raw.githubusercontent.com/niwantha33/micropython-studio/a62aa231ee15bec41de0a8f9a7bdc89bbbaae975/src/debugger_files/trace_pump.py \
+            https://raw.githubusercontent.com/niwantha33/micropython-studio/b6e862bdc473301957a5d08af26c4e3f02e337c0/src/debugger_files/trace_pump.py \
             --output "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py"
           test "$(git hash-object "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py")" = \
-            "f7bded9d6180849e9e92cdd9e06bca4c223ca2bc"
+            "dfec45501e1944d162c309bee1f3f52bd6b54e34"
           grep -q 'PUMP_PROTOCOL = 5' "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py"
           grep -q 'PUMP_BUILD = "2026-10-07-rta-viewer-v5"' "$BOARD_DIR/mpy_studio_frozen/mpy_studio_pico_trace_pump.py"
 
@@ -200,8 +200,8 @@ jobs:
             echo "bootstrap: frozen-pico-two-phase"
             echo "pump_protocol: 5"
             echo "pump_build: 2026-10-07-rta-viewer-v5"
-            echo "pump_source_commit: a62aa231ee15bec41de0a8f9a7bdc89bbbaae975"
-            echo "pump_source_blob: f7bded9d6180849e9e92cdd9e06bca4c223ca2bc"
+            echo "pump_source_commit: b6e862bdc473301957a5d08af26c4e3f02e337c0"
+            echo "pump_source_blob: dfec45501e1944d162c309bee1f3f52bd6b54e34"
           } > "out/${{ matrix.folder }}/VERSION.txt"
 
       - name: Upload test firmware
