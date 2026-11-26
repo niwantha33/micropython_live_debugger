@@ -24,6 +24,7 @@ The frozen RP2 candidate keeps CDC0 for REPL and file transfers and CDC1 for deb
 | --- | --- |
 | `main` | Default native patch history; not automatically the approved distributed firmware |
 | [RP2 integrated candidate PR #13](https://github.com/niwantha33/micropython_live_debugger/pull/13) | Frozen RP2 integration, paused globals and stepping corrections; includes the earlier #12 work |
+| [ESP32-C3 transport notes](esp32c3/README.md) | Board-specific serial transport documentation; separate from native debugger firmware qualification |
 | [ESP32-S3 PR #4](https://github.com/niwantha33/micropython_live_debugger/pull/4) | Separate ESP32-S3 integration |
 
 The RP2 candidate at `fb1a08186b060bf757191ba9f4fad273ff2abd38` passed the [four-board candidate build](https://github.com/niwantha33/micropython_live_debugger/actions/runs/45800043339). Two consecutive Pico 2 W physical qualification runs were reported successful with the corresponding Studio test branch. This is evidence for that tested combination, not approval for other boards or general release.
