@@ -1,69 +1,27 @@
-# Firmware build workflow
+# Native debugger firmware — build instructions
 
-## Where things live
+This repository builds firmware candidates for MicroPython Studio. Official downloads and publication rules are in [micropython_live_dbg_firmware](https://github.com/niwantha33/micropython_live_dbg_firmware).
 
-```
-C:\project\micropython_debugger\firmware\    ← this folder (Windows)
-├── BUILD.md              this file
-├── patches\              our edits to MicroPython, as numbered .patch files
-│   ├── 0001-*.patch
-│   └── 0002-*.patch
-├── apply.sh              reset MicroPython tree, apply all patches
-└── build.sh              apply + build + copy UF2 here
+## Recommended: reproducible CI
 
-~/micropython\            ← the MicroPython source tree (WSL, pristine git clone)
-```
+Use the appropriate source branch or PR and its GitHub Actions workflow. Candidate builds retain the exact source commit, upstream MicroPython revision, board identifier, checksum and matching ELF (and map when available).
 
-**Never edit files inside `~/micropython/` directly.** All edits live as
-patches in `firmware/patches/`. This way we keep a clean record of every
-change we make to upstream MicroPython.
+- Default branch: [Build debugger firmware](../.github/workflows/build-firmware.yml) — native RP2 patch build.
+- [Integrated RP2 candidate](https://github.com/niwantha33/micropython_live_debugger/pull/13): frozen CDC bootstrap and debugger pump, four Pico targets. Use its **Build frozen Pico + RTA integration candidate** workflow, not the older native-only build, when evaluating Studio's frozen debugger.
+- [ESP32-S3 integration](https://github.com/niwantha33/micropython_live_debugger/pull/4): separate board-specific build and transport.
 
-## One-time setup
+Select the correct board artifact and verify VERSION.txt and SHA256 before flashing a dedicated test board. CI compilation is not hardware qualification or release approval. Do not publish directly from source CI.
 
-Done in Phase 1. Summary:
+## Local legacy RP2 build
 
-- WSL2 Ubuntu 24.04
-- `build-essential git cmake gcc-arm-none-eabi libnewlib-arm-none-eabi libstdc++-arm-none-eabi-newlib python3 pkg-config libusb-1.0-0-dev`
-- MicroPython cloned at `~/micropython` with submodules
+The existing `apply.sh` and `build.sh` are development scripts for the native RP2 patch chain; they do not reproduce the complete frozen candidate workflow by themselves.
 
-## Known gotchas (carry forward every build)
+**Warning:** `apply.sh` runs `git checkout .` and `git clean -fd` against MPY_DIR. Use a disposable MicroPython clone, never a working tree with user changes. `build.sh` removes board build directories and writes UF2 files in the source repository.
 
-1. **picotool version**: pass `PICOTOOL_FORCE_FETCH_FROM_GIT=1` on the make
-   command so the build fetches its own matching version.
-2. **Windows PATH leakage**: WSL sees Windows' `picotool.exe` through `/mnt/c`
-   and CMake picks it up. Strip PATH for the build:
-   `PATH=/usr/local/bin:/usr/bin:/bin`
+On Linux or WSL with an ARM toolchain, CMake, Git and Python installed, use the upstream SHA in `MICROPYTHON_REF`. Review the CI workflow for exact dependency and build steps. The local scripts already isolate PATH from Windows tools and force matching picotool discovery.
 
-Both handled by `build.sh`.
+## Qualification
 
-## Daily flow
+The corresponding Studio repository provides `npm run qualify` for software tests and `npm run qualify:hardware` for opt-in physical tests. Use a dedicated board, correct firmware and explicitly selected USB interfaces. Preserve the report with exact firmware artifact metadata and Studio commit.
 
-From a WSL terminal:
-
-```bash
-cd /mnt/c/project/micropython_debugger/firmware
-./build.sh
-```
-
-Output: `firmware/firmware.uf2` on the Windows side, ready to flash.
-
-To flash:
-1. Unplug Pico 2 W.
-2. Hold BOOTSEL, plug USB back in, release.
-3. Drag `firmware.uf2` onto the `RP2350` drive.
-
-## Adding a new patch
-
-1. In WSL, edit the file(s) inside `~/micropython/`.
-2. Generate the patch:
-   ```bash
-   cd ~/micropython
-   git diff > /mnt/c/_Projects/micropython_debugger/firmware/patches/NNNN-short-description.patch
-   ```
-3. Reset the tree so nothing is left dirty:
-   ```bash
-   git checkout .
-   ```
-4. Test: run `build.sh` — it will apply all patches fresh, including the new one.
-
-Numbering: `0001`, `0002`, ... applied in filename order.
+Never promote a distribution pin based only on a successful build. Keep historical source commits, branches and release assets available for reproducibility.
